@@ -52,8 +52,8 @@ class Fridge {
 
   /* Temperature */
   double readTemperature() => temperature;
-  void _increaseTemperature() => temperature = temperature + 0.01;
-  void _decreaseTemperature() => temperature = temperature - 0.01;
+  void _increaseTemperature() => temperature = temperature + 0.1;
+  void _decreaseTemperature() => temperature = temperature - 0.1;
 
   /* Temperature Umbral */
   void setMaxTemperature(double maxTemperature) =>
@@ -93,13 +93,13 @@ class Fridge {
     updateLastDate();
     return {
       'id': id,
-      'temperature': temperature,
+      'temperature': temperature.round(),
       'light': light,
       'compressor': compressor,
       'date': lastDateTime.toString(),
       'status': status.toShortString(),
-      'temperature_max': maxTemperature,
-      'temperature_min': minTemperature,
+      'temperature_max': maxTemperature.round(),
+      'temperature_min': minTemperature.round(),
     };
   }
 
@@ -171,7 +171,7 @@ class Fridge {
       final action = json['action'];
       if (_verifyAction(action)) {
         FridgeActionRx actionRx = _toFridgeAction(action);
-        onAction(actionRx);
+        onAction(actionRx, json: json);
         showState();
       }
     } catch (e) {
@@ -185,21 +185,26 @@ class Fridge {
     simulate();
   }
 
-  void onAction(FridgeActionRx action, {dynamic payload = ""}) {
+  void onAction(FridgeActionRx action, {dynamic json = ""}) {
+    print("Action received: ${action.toShortString()}");
+
     switch (action) {
       case FridgeActionRx.connected:
         setStatus(FridgeStatus.ok);
         break;
 
       case FridgeActionRx.setMaxTemperature:
-        if (payload["temperature"] != null && _verifyPayload(payload)) {
-          setMaxTemperature(payload["temperature"]);
+        if (json["payload"]["temperature"] != null &&
+            _verifyPayload(json["payload"])) {
+          setMaxTemperature(json["payload"]["temperature"].roundToDouble());
         }
+
         break;
 
       case FridgeActionRx.setMinTemperature:
-        if (payload["temperature"] != null && _verifyPayload(payload)) {
-          setMinTemperature(payload["temperature"]);
+        if (json["payload"]["temperature"] != null &&
+            _verifyPayload(json["payload"])) {
+          setMinTemperature(json["payload"]["temperature"]);
         }
         break;
 
@@ -213,6 +218,8 @@ class Fridge {
       default:
         break;
     }
+
+    showState();
   }
 
   void simulate() async {
@@ -224,6 +231,5 @@ class Fridge {
     }
     await Future.delayed(Duration(seconds: 5));
     sendState();
-    showState();
   }
 }

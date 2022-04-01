@@ -4,7 +4,7 @@ import 'package:web_socket_channel/io.dart';
 import 'package:web_socket_channel/web_socket_channel.dart';
 import 'dart:math';
 
-import 'fridge.dart';
+import '../models/fridge.dart';
 
 final APP_COMMANDS_TX = [
   "@set_temperature",
