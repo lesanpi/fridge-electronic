@@ -4,6 +4,8 @@ import 'package:web_socket_channel/io.dart';
 import 'package:web_socket_channel/web_socket_channel.dart';
 import 'dart:math';
 
+import 'fridge.dart';
+
 final APP_COMMANDS_TX = [
   "@set_temperature",
   "@set_temperature_for_all",
@@ -24,7 +26,7 @@ final FRIDGE_COMMANDS_RX = [
   "@set_temperature_max",
   "@set_temperature_min",
 ];
-final FRIDGE_COMMANDS_TX = ["@send_state"];
+final FRIDGE_COMMANDS_TX = ["@send_state", "@error"];
 
 late var channel;
 String id = "prueba-id";
@@ -113,16 +115,19 @@ void sendCmd(dynamic data) {
 }
 
 main() async {
-  print('Hello');
-  connect();
+  print('Starting test fridge');
+  final fridgeClient = Fridge('fridge-test-1');
 
-  channel.stream.listen((message) {
-    print(message);
-  });
+  fridgeClient.sendState();
+  // connect();
 
-  for (int i = 0; i < 3; i++) {
-    sendState();
-  }
+  // channel.stream.listen((message) {
+  //   print(message);
+  // });
 
-  setTemperatureFor(20, '1');
+  // for (int i = 0; i < 3; i++) {
+  //   sendState();
+  // }
+
+  // setTemperatureFor(20, '1');
 }
