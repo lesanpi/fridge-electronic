@@ -11,7 +11,9 @@
 // Electronic
 #define ledpin D2 //defining the OUTPUT pin for LED
 #define dataDQ D5 // temperature
-
+// Data
+String id = "device71-9212";
+String name = "";
 // Wifi Access Point
 const char *ssid =  "ZonaElectronica";   //Wifi SSID (Name)   
 const char *pass =  "12345678"; //wifi password
@@ -52,7 +54,8 @@ void sendConnected(uint8_t num){
 void setMaxTemperature(JsonObject json){
   DynamicJsonDocument response(1024);
   String responseText;
-  int num = doc["devices"][String(json["payload"]["id"])]["num"];
+  String id = String(json["payload"]["id"]);
+  int num = doc["devices"][id]["num"];
 
   response["action"] = "setMaxTemperature";
   response["payload"]["temperature"] = json["payload"]["temperature"];
@@ -60,6 +63,46 @@ void setMaxTemperature(JsonObject json){
   webSocket.sendTXT(num, responseText);
 }
 
+void setMinTemperature(JsonObject json){
+  DynamicJsonDocument response(1024);
+  String responseText;
+  String id = String(json["payload"]["id"]);
+  int num = doc["devices"][id]["num"];
+
+  response["action"] = "setMinTemperature";
+  response["payload"]["temperature"] = json["payload"]["temperature"];
+  serializeJson(response, responseText);
+  webSocket.sendTXT(num, responseText);
+}
+
+void deleteDevice(String id){
+  // String id = String(json["payload"]["id"]);
+  doc.remove(id);
+}
+
+void setData(JsonObject json, uint8_t num){
+  String id = String(json["payload"]["id"]);
+           doc[id]["id"] = json["payload"]["id"];
+           doc[id]["temperature"] = json["payload"]["temperature"];
+           doc[id]["light"] = json["payload"]["light"];
+           doc[id]["compressor"] = json["payload"]["compressor"];
+           doc[id]["status"] = json["payload"]["status"];
+           doc[id]["temperature_max"] = json["payload"]["temperature_max"];
+           doc[id]["temperature_min"] = json["payload"]["temperature_min"];
+           doc[id]["ip"] = webSocket.remoteIP(num).toString();
+           doc[id]["num"] = num;
+}
+
+void toggleLight(JsonObject json){
+  DynamicJsonDocument response(1024);
+  String responseText;
+  String id = String(json["payload"]["id"]);
+  int num = doc["devices"][id]["num"];
+
+  response["action"] = "toggleLight";
+  serializeJson(response, responseText);
+  webSocket.sendTXT(num, responseText);
+}
 
 String getStringMessage(uint8_t * payload, size_t length){
   String message = "";
@@ -75,17 +118,7 @@ void onMessage(JsonObject json, uint8_t num){
       
         if(action.equals("sendState")){
            Serial.println("Recibir y almacenar estado de la nevera");
-           doc["devices"][String(json["payload"]["id"])]["id"] = json["payload"]["id"];
-           doc["devices"][String(json["payload"]["id"])]["temperature"] = json["payload"]["temperature"];
-           doc["devices"][String(json["payload"]["id"])]["light"] = json["payload"]["light"];
-           doc["devices"][String(json["payload"]["id"])]["compressor"] = json["payload"]["compressor"];
-           doc["devices"][String(json["payload"]["id"])]["status"] = json["payload"]["status"];
-           doc["devices"][String(json["payload"]["id"])]["temperature_max"] = json["payload"]["temperature_max"];
-           doc["devices"][String(json["payload"]["id"])]["temperature_min"] = json["payload"]["temperature_min"];
-           doc["devices"][String(json["payload"]["id"])]["ip"] = webSocket.remoteIP(num).toString();
-           doc["devices"][String(json["payload"]["id"])]["num"] = num;
-
-           
+           setData(json, num);
         }
         if(action.equals("confirmConnection")){
           Serial.println("La conexion de la nevera fue verificada y se actualiza los datos");
@@ -93,14 +126,10 @@ void onMessage(JsonObject json, uint8_t num){
         if(action.equals("error")){
           Serial.println("Se recibio un error de la nevera");
         }
-        if(action.equals("setTemperature")){
-          Serial.println("Hay que indicarle a la nevera seleccionada la temperatura que se indico");
-        }
-        if(action.equals("setTemperatureForAll")){
-          Serial.println("Indicarle a todas las neveras que deben ponerse a la temperatura indicada");
-        }
+
         if(action.equals("toggleLight")){
           Serial.println("Indicarle a la nevera seleccionada que prenda la luz");
+          toggleLight(json);
         }
         if(action.equals("setMaxTemperature")){
           Serial.println("Indicarle a la nevera seleccionada que cambie su nivel maximo de temperature");
@@ -108,6 +137,7 @@ void onMessage(JsonObject json, uint8_t num){
         }
         if(action.equals("setMinTemperature")){
           Serial.println("Indicarle a la nevera seleccionada que cambie su nivel minimo de temperature");
+          setMinTemperature(json);
         }
         if(action.equals("setMaxTemperatureForAll")){
           Serial.println("Indicarle a todas las neveras que cambien su nivel maximo de temperature");
@@ -117,6 +147,8 @@ void onMessage(JsonObject json, uint8_t num){
         }
         if(action.equals("delete")){
           Serial.println("Eliminar la nevera indicada");
+          String id = String(json["payload"]["id"]);
+          deleteDevice(id);
         }
         if(action.equals("deleteAll")){
           Serial.println("Eliminar todas las neveras");
@@ -134,6 +166,7 @@ void webSocketEvent(uint8_t num, WStype_t type, uint8_t * payload, size_t length
       deserializeJson(docInput, cmd);
       objReceived = docInput.as<JsonObject>();
       String action = objReceived[String("action")];
+      
       onMessage(objReceived, num);
       
     }
@@ -144,7 +177,7 @@ void webSocketEvent(uint8_t num, WStype_t type, uint8_t * payload, size_t length
             //case when Websocket is disconnected
             break;
         case WStype_CONNECTED:
-            //wcase when websocket is connected
+
             Serial.println("Websocket is connected");
             Serial.println(webSocket.remoteIP(num).toString());
             sendConnected(num);
@@ -155,15 +188,15 @@ void webSocketEvent(uint8_t num, WStype_t type, uint8_t * payload, size_t length
                 cmd = cmd + (char) payload[i]; 
             } //merging payload to single string
 
-            if(cmd == "poweron"){ //when command from app is "poweron"
-                digitalWrite(ledpin, HIGH);
-                webSocket.sendTXT(num, "poweron:success");
-                //make ledpin output to HIGH  
-            }else if(cmd == "poweroff"){
-                digitalWrite(ledpin, LOW);
-                webSocket.sendTXT(num, "poweroff:success");
-                //make ledpin output to LOW on 'pweroff' command.
-            }
+            // if(cmd == "poweron"){ //when command from app is "poweron"
+            //     digitalWrite(ledpin, HIGH);
+            //     webSocket.sendTXT(num, "poweron:success");
+            //     //make ledpin output to HIGH  
+            // }else if(cmd == "poweroff"){
+            //     digitalWrite(ledpin, LOW);
+            //     webSocket.sendTXT(num, "poweroff:success");
+            //     //make ledpin output to LOW on 'pweroff' command.
+            // }
             
              
 //             doc["devices"][num]["temp"] = objReceived[String("temp")];

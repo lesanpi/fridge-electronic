@@ -1,235 +1,59 @@
-import 'dart:convert';
-
-import 'package:web_socket_channel/io.dart';
-import 'package:web_socket_channel/web_socket_channel.dart';
-
-enum FridgeStatus { disconnected, ok, warningConnection, warningTemperature }
-enum FridgeActionTx { sendState, error, confirmConnection }
-enum FridgeActionRx {
-  connected,
-  setTemperature,
-  toggleLight,
-  verifyConnection,
-  setMaxTemperature,
-  setMinTemperature,
-  none
-}
-
-extension ParseToStringFridgeStatus on FridgeStatus {
-  String toShortString() {
-    return this.toString().split('.').last;
-  }
-}
-
-extension ParseToStringFridgeActionTx on FridgeActionTx {
-  String toShortString() {
-    return this.toString().split('.').last;
-  }
-}
-
-extension ParseToStringFridgeActionRx on FridgeActionRx {
-  String toShortString() {
-    return this.toString().split('.').last;
-  }
-}
+import '../enum/enums.dart';
 
 class Fridge {
-  late WebSocketChannel channel;
-  late String id;
-  late double temperature;
+  String id;
+  String name;
+  String ssid;
+  String? lastDateTime;
+  int temperature;
+  double? maxTemperature;
+  double? minTemperature;
+  bool standaloneMode = true;
   bool light = false;
   bool compressor = false;
-  late DateTime lastDateTime;
-  FridgeStatus status = FridgeStatus.disconnected;
-  double maxTemperature = 20;
-  double minTemperature = -10;
+  FridgeStatus status;
 
-  Fridge(this.id) {
-    temperature = 10.0;
-    lastDateTime = DateTime.now();
-    connect();
-  }
+  Fridge({
+    required this.name,
+    required this.id,
+    required this.temperature,
+    required this.standaloneMode,
+    required this.light,
+    required this.compressor,
+    required this.lastDateTime,
+    required this.maxTemperature,
+    required this.minTemperature,
+    required this.status,
+    required this.ssid,
+  });
 
-  /* Temperature */
-  double readTemperature() => temperature;
-  void _increaseTemperature() => temperature = temperature + 0.1;
-  void _decreaseTemperature() => temperature = temperature - 0.1;
+  bool sameFridge(Fridge fridge) => fridge.id == id;
 
-  /* Temperature Umbral */
-  void setMaxTemperature(double maxTemperature) =>
-      this.maxTemperature = maxTemperature;
-  void setMinTemperature(double minTemperature) =>
-      this.minTemperature = minTemperature;
+  factory Fridge.fromJson(Map<String, dynamic> json) => Fridge(
+        name: json["name"],
+        id: json["id"],
+        temperature: json["temperature"],
+        light: json["light"],
+        compressor: json["compressor"],
+        lastDateTime: json["lastDateTime"],
+        status: json["status"],
+        maxTemperature: json["maxTemperature"],
+        minTemperature: json["minTemperature"],
+        standaloneMode: json["standaloneMode"],
+        ssid: json["ssid"],
+      );
 
-  /* Verify temperature */
-  void verifyTemperature() {
-    if (temperature < minTemperature) {
-      setStatus(FridgeStatus.warningTemperature);
-      if (compressor) {
-        toggleCompressor();
-      }
-      return;
-    }
-
-    if (temperature > maxTemperature) {
-      setStatus(FridgeStatus.warningTemperature);
-      if (!compressor) {
-        toggleCompressor();
-      }
-    }
-
-    setStatus(FridgeStatus.ok);
-  }
-
-  void setStatus(FridgeStatus status) => this.status = status;
-  FridgeStatus getStatus() => status;
-
-  void updateLastDate() => lastDateTime = DateTime.now();
-
-  void toggleCompressor() => compressor = !compressor;
-  void toggleLight() => light = !light;
-
-  dynamic getState() {
-    updateLastDate();
-    return {
-      'id': id,
-      'temperature': temperature.round(),
-      'light': light,
-      'compressor': compressor,
-      'date': lastDateTime.toString(),
-      'status': status.toShortString(),
-      'temperature_max': maxTemperature.round(),
-      'temperature_min': minTemperature.round(),
-    };
-  }
-
-  void sendState() async {
-    final data = {
-      "action": FridgeActionTx.sendState.toShortString(),
-      "payload": getState()
-    };
-    final String jsonString = jsonEncode(data);
-
-    _sendCmd(jsonString);
-  }
-
-  void confirmConnection() async {
-    final data = {
-      "action": FridgeActionTx.confirmConnection.toShortString(),
-    };
-    final String jsonString = jsonEncode(data);
-
-    _sendCmd(jsonString);
-  }
-
-  void showState() {
-    print(getState().toString());
-  }
-
-  void connect() {
-    print("Connecting to the server...");
-    try {
-      channel = IOWebSocketChannel.connect(Uri.parse('ws://192.168.0.1:81'));
-      channel.stream.listen(onMessage);
-    } catch (e) {
-      setStatus(FridgeStatus.disconnected);
-    }
-
-    showState();
-  }
-
-  void _sendCmd(dynamic data) {
-    channel.sink.add(data);
-  }
-
-  bool _verifyAction(dynamic action) {
-    if (action == null) {
-      return false;
-    }
-
-    try {
-      _toFridgeAction(action);
-      return true;
-    } catch (e) {
-      return false;
-    }
-  }
-
-  bool _verifyPayload(dynamic payload) {
-    return payload != null;
-  }
-
-  FridgeActionRx _toFridgeAction(String action) {
-    return FridgeActionRx.values
-        .firstWhere((element) => element.toShortString() == action);
-  }
-
-  void onMessage(message) {
-    // print(message);
-    try {
-      final json = jsonDecode(message);
-      final action = json['action'];
-      if (_verifyAction(action)) {
-        FridgeActionRx actionRx = _toFridgeAction(action);
-        onAction(actionRx, json: json);
-        showState();
-      }
-    } catch (e) {
-      if (e is FormatException) {
-        print("Error: Message is not a json");
-      } else {
-        print('Error on message received $e');
-      }
-    }
-
-    simulate();
-  }
-
-  void onAction(FridgeActionRx action, {dynamic json = ""}) {
-    print("Action received: ${action.toShortString()}");
-
-    switch (action) {
-      case FridgeActionRx.connected:
-        setStatus(FridgeStatus.ok);
-        break;
-
-      case FridgeActionRx.setMaxTemperature:
-        if (json["payload"]["temperature"] != null &&
-            _verifyPayload(json["payload"])) {
-          setMaxTemperature(json["payload"]["temperature"].roundToDouble());
-        }
-
-        break;
-
-      case FridgeActionRx.setMinTemperature:
-        if (json["payload"]["temperature"] != null &&
-            _verifyPayload(json["payload"])) {
-          setMinTemperature(json["payload"]["temperature"]);
-        }
-        break;
-
-      case FridgeActionRx.toggleLight:
-        toggleLight();
-        break;
-
-      case FridgeActionRx.verifyConnection:
-        confirmConnection();
-        break;
-      default:
-        break;
-    }
-
-    showState();
-  }
-
-  void simulate() async {
-    verifyTemperature();
-    if (compressor) {
-      _decreaseTemperature();
-    } else {
-      _increaseTemperature();
-    }
-    await Future.delayed(Duration(seconds: 5));
-    sendState();
-  }
+  static Fridge empty() => Fridge(
+        name: "",
+        id: "",
+        temperature: -127,
+        compressor: false,
+        light: false,
+        standaloneMode: true,
+        maxTemperature: null,
+        minTemperature: null,
+        lastDateTime: null,
+        status: FridgeStatus.disconnected,
+        ssid: "",
+      );
 }
