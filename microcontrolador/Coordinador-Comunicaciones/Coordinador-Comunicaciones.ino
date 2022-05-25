@@ -268,10 +268,10 @@ void loop() {
 //    Serial.print(temperature);
 //    Serial.println(" C");
 
-    String buf;
-    serializeJson(doc, buf);
-    Serial.println(buf);
-    webSocket.broadcastTXT(buf);
+    // String buf;
+    // serializeJson(doc, buf);
+    // Serial.println(buf);
+    // webSocket.broadcastTXT(buf);
 
    
     
