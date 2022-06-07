@@ -3,6 +3,9 @@
 #include <ESP8266WiFi.h>
 #include "uMQTTBroker.h"
 #include "StreamUtils.h"
+#include <SoftwareSerial.h>
+
+#define CONFIGURATION_MODE_OUTPUT D5 
 
 char path[] = "/";
 char host[] = "192.168.0.1";
@@ -29,10 +32,19 @@ DynamicJsonDocument memoryJson(capacity); // State, sensors, outputs...
 String ssid     = id; // Nombre del wifi en modo standalone
 String password = "12345678"; // Clave del wifi en modo standalone
 // Coordinator Wifi  
-String ssidCoordinator     = id; // Wifi al que se debe conectar (coordinador)
+String ssidCoordinator     = ""; // Wifi al que se debe conectar (coordinador)
 String passwordCoordinator = "12345678"; // Clave del Wifi del coordinador
 // Notify information: Publish when a new user is connected
 bool notifyInformation = false;
+bool notifyState = false;
+
+/// Configuration mode
+bool configurationMode = true;
+bool configurationModeLightOn = false;
+
+/// BLUETOOTH
+SoftwareSerial btSerial(D2, D3); // Rx,Tx
+
 
 /// JSON ///
 
@@ -64,11 +76,11 @@ void setState(){
   state["minTemperature"] = minTemperature;
   state["standalone"] = standalone;
   state["ssid"] = ssid;
+  state["ssidCoordinator"] = ssidCoordinator;
 
   // SSID Coordinator just if standalone is false;
-  if (!standalone){
-    state["ssidCoordinator"] = ssidCoordinator;
-  }
+  // if (!standalone){
+  // }
 
 }
 
@@ -80,17 +92,34 @@ void setInformation(){
 }
 
 void getMemoryData(){
-  Serial.println("Obteniendo datos en memoria");
   DynamicJsonDocument doc(1024);
   JsonObject json;
   // deserializeJson(docInput, str);
   EepromStream eepromStream(0, 1024);
   deserializeJson(doc, eepromStream);
   json = doc.as<JsonObject>();
-  Serial.println(String(json["minTemperature"]));
-  minTemperature = json["minTemperature"];
-  maxTemperature = json["maxTemperature"];
-  ssid = String(json["ssid"]);
+
+
+  /// Getting the memory data if the configuration mode is false
+  // Serial.println("Modo configuracion: "+ String(json["configurationMode"]));
+  // Serial.println("Modo configuracion: "+ bool(json["configurationMode"]));
+  // Serial.println(String(json["configurationMode"]) == "null");
+
+  if (String(json["configurationMode"]) == "null" || bool(json["configurationMode"]) == true){
+    
+    Serial.println("Activando modo de configuracion");
+    configurationMode = true;
+    
+  } else {
+    
+    Serial.println("Obteniendo datos en memoria");
+    configurationMode = false;
+    minTemperature = json["minTemperature"];
+    maxTemperature = json["maxTemperature"];
+    ssid = String(json["ssid"]);
+    ssidCoordinator = String(json["ssidCoordinator"]);
+    standalone = bool(json["standalone"]);
+  }
 
 }
 
@@ -101,6 +130,7 @@ void setMemoryData(){
   memoryJson["standalone"] = standalone;
   memoryJson["ssid"] = ssid;
   memoryJson["ssidCoordinator"] = ssidCoordinator;
+  memoryJson["configurationMode"] = configurationMode;
 
   EepromStream eepromStream(0, 1024);
   serializeJson(memoryJson, eepromStream);
@@ -115,6 +145,8 @@ class FridgeMQTTBroker: public uMQTTBroker
 public:
     virtual bool onConnect(IPAddress addr, uint16_t client_count) {
       Serial.println(addr.toString()+" connected");
+      notifyInformation = true;
+      notifyState = true;
       return true;
     }
 
@@ -125,6 +157,7 @@ public:
     virtual bool onAuth(String username, String password, String client_id) {
       Serial.println("Username/Password/ClientId: "+username+"/"+password+"/"+client_id);
       notifyInformation = true;
+      notifyState = true;
       return true;
     }
     
@@ -250,40 +283,87 @@ void setupWifi(){
 
 
 void setup() {
+  /// Memory
   EEPROM.begin(1024);
+  /// Logs
   Serial.begin(115200);
-  Serial.println();
-  Serial.println();
+  /// Bluetooth module baudrate 
+  btSerial.begin(9600);     
 
-  getMemoryData();
-  /// Setup WiFi
-  setupWifi();
-
-  // Initilize JSON with the state of the Fridge and initialize the topic
-  setState();
-  setInformation();
-  publishState();
-  publishInformation();
-  delay(1000);
+  /// Configuration mode light output
+  pinMode(CONFIGURATION_MODE_OUTPUT, OUTPUT);
   
+  delay(5000);
+  getMemoryData();
+  if (configurationMode){
+    /// Setup WiFi
+    setupWifi();
+
+    // Initilize JSON with the state of the Fridge and initialize the topic
+    setState();
+    setInformation();
+    publishState();
+    publishInformation();
+
+  }
+
+  delay(1000);
 }
 
 
 void loop() {
   
-  // Publish state
   readTemperature();
+  if (!configurationMode) {
+    if (configurationMode && !configurationModeLightOn){
   
-  if (notifyInformation){
-    publishInformation();
-    setState();
-    publishState();
-    notifyInformation = false;
+      digitalWrite(CONFIGURATION_MODE_OUTPUT, HIGH);
+      configurationModeLightOn = true;
+    }
+
+    // Publish info
+    if (notifyInformation){
+      setInformation();
+      publishInformation();
+
+      notifyInformation = false;
+    }
+
+    // Publish state
+    if (notifyState){
+      setState();
+      publishState();
+      notifyState = false;
+    }
+
   }
+  else {
+    Serial.println("Esperando configuración...");
+    readDataFromBluetooth();
+  }
+
 
   
   delay(1000);
 
+}
+
+/// SETUP
+
+void readDataFromBluetooth(){
+  // delay(2000);
+  // Serial.println("Leyendo desde bluetooth ");
+   // Check if bluetooth module sends some data to esp8266
+  if (btSerial.available() >= 1) {   
+    // read the data from HC-05
+    char data = btSerial.read();  
+    Serial.print("Data: ");
+    Serial.println(data);
+  }
+  // else {
+  //   Serial.println("No disponible o sin datos");
+    
+  // }
 }
 
 /// ACTIONS ///
@@ -293,7 +373,7 @@ void onAction(JsonObject json){
 
   if(action.equals("toggleLight")){
     Serial.println("Indicarle a la nevera seleccionada que prenda la luz");
-     toggleLight();
+    toggleLight();
   }
   if(action.equals("setMaxTemperature")){
     Serial.println("Indicarle a la nevera seleccionada que cambie su nivel maximo de temperature");
@@ -316,10 +396,10 @@ void onAction(JsonObject json){
 
 /// Read temperature
 void readTemperature(){
-  int temperatureRead = random(-20, 5);
+  int temperatureRead = random(0, 2);
   if (temperatureRead != temperature){
     temperature = temperatureRead;
-    notifyInformation = true;
+    notifyState = true;
   }
 
 }
@@ -328,20 +408,20 @@ void readTemperature(){
 void toggleLight(){
   light = !light;
   /// TODO: turn on the light using digital output.
-  notifyInformation = true;
+  notifyState = true;
 }
 
 /// Set max temperature
 void setMaxTemperature(int newMaxTemperature){
   maxTemperature = newMaxTemperature;
-  notifyInformation = true;
+  notifyState = true;
   setMemoryData();
 }
 
 /// Set min temperature
 void setMinTemperature(int newMinTemperature){
   minTemperature = newMinTemperature;
-  notifyInformation = true;
+  notifyState = true;
   setMemoryData();
 }
 
@@ -354,3 +434,4 @@ void setStandaloneMode(String newSsid){
   setMemoryData();
 
 }
+

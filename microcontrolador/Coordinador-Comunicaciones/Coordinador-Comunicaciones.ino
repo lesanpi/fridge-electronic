@@ -1,279 +1,173 @@
 #include <Arduino.h>
-#include <ESP8266WiFi.h> //import for wifi functionality
-#include <WebSocketsServer.h> //import for websocket
-#include <OneWire.h>
-#include <DallasTemperature.h>
+#include "esp_camera.h"
+#include <WiFi.h> //import for wifi functionality
 #include <string.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <ArduinoJson.h>
+// #include "uMQTTBroker.h"
 
 // Electronic
-#define ledpin D2 //defining the OUTPUT pin for LED
-#define dataDQ D5 // temperature
+// #define ledpin D2 //defining the OUTPUT pin for LED
+// #define dataDQ D5 // temperature
 // Data
 String id = "device71-9212";
 String name = "";
 // Wifi Access Point
 const char *ssid =  "ZonaElectronica";   //Wifi SSID (Name)   
 const char *pass =  "12345678"; //wifi password
+// Notify information: Publish when a new user is connected
+bool notifyInformation = false;
 
-//Data 
-String devices_connected[254];
-int fridgesConnected = 0;
-const size_t capacity = 2048;
-DynamicJsonDocument doc(capacity);
+// State JSON
+const size_t capacity = 1024; 
+DynamicJsonDocument state(capacity); // State, sensors, outputs...
+DynamicJsonDocument information(capacity); // Information, name, id, ssid...
+DynamicJsonDocument memoryJson(capacity); // State, sensors, outputs...
 
-// Server
-WebSocketsServer webSocket = WebSocketsServer(81); //websocket init with port 81
+// Convert to json
+JsonObject toJson(String str){
+  // Serial.println(str);
+  DynamicJsonDocument docInput(1024);
+  JsonObject json;
+  deserializeJson(docInput, str);
+  json = docInput.as<JsonObject>();
+  return json;
+}
 
-// Instancia a las clases OneWire y DallasTemperature
-OneWire oneWireObjeto(dataDQ);
-DallasTemperature sensorDS18B20(&oneWireObjeto);
-
-// Temporizador
-unsigned long ultimaTemp = 0;
-unsigned long tiempoTemp = 5000; // Cada 5 segundos
-uint8_t lastNum = 0;
-
-String jsonToString(DynamicJsonDocument doc){
+/// Returns the JSON converted to String
+String jsonToString(DynamicJsonDocument json){
   String buf;
-  serializeJson(doc, buf);
+  serializeJson(json, buf);
   return buf;
 }
 
+/// MQTT Broker ///
 
-void sendConnected(uint8_t num){
-  DynamicJsonDocument response(1024);
-  String responseText;
-  response["action"] = "connected";
-  serializeJson(response, responseText);
-  webSocket.sendTXT(num, responseText);
-}
+// class FridgeMQTTBroker: public uMQTTBroker
+// {
+// public:
+//     virtual bool onConnect(IPAddress addr, uint16_t client_count) {
+//       Serial.println(addr.toString()+" connected");
+//       return true;
+//     }
 
-void setMaxTemperature(JsonObject json){
-  DynamicJsonDocument response(1024);
-  String responseText;
-  String id = String(json["payload"]["id"]);
-  int num = doc["devices"][id]["num"];
+//     virtual void onDisconnect(IPAddress addr, String client_id) {
+//       Serial.println(addr.toString()+" ("+client_id+") disconnected");
+//     }
 
-  response["action"] = "setMaxTemperature";
-  response["payload"]["temperature"] = json["payload"]["temperature"];
-  serializeJson(response, responseText);
-  webSocket.sendTXT(num, responseText);
-}
+//     virtual bool onAuth(String username, String password, String client_id) {
+//       Serial.println("Username/Password/ClientId: "+username+"/"+password+"/"+client_id);
+//       notifyInformation = true;
+//       return true;
+//     }
+    
+//     virtual void onData(String topic, const char *data, uint32_t length) {
+//       char data_str[length+1];
+//       os_memcpy(data_str, data, length);
+//       data_str[length] = '\0';
+//       Serial.println("received topic '"+topic+"' with data '"+(String)data_str+"'");
 
-void setMinTemperature(JsonObject json){
-  DynamicJsonDocument response(1024);
-  String responseText;
-  String id = String(json["payload"]["id"]);
-  int num = doc["devices"][id]["num"];
+//       // Convert to JSON.
+//       DynamicJsonDocument docInput(1024); 
+//       JsonObject json;
+//       deserializeJson(docInput, (String)data_str);
+//       json = docInput.as<JsonObject>();
+      
+//       // if (topic == "state/" + id){
+//       //   Serial.println("Temperature: " + String(json["temperature"]));
+//       // }
 
-  response["action"] = "setMinTemperature";
-  response["payload"]["temperature"] = json["payload"]["temperature"];
-  serializeJson(response, responseText);
-  webSocket.sendTXT(num, responseText);
-}
+//       if(topic == "action/" + id){
+//         Serial.println("Action: " + String(json["action"]));
+//         onAction(json);
+//         // EJECUTAR LAS ACCIONES
+        
+//         setState();
+//         publishState();
+//       }
 
-void deleteDevice(String id){
-  // String id = String(json["payload"]["id"]);
-  doc.remove(id);
-}
+      
+//       //printClients();
+//     }
 
-void setData(JsonObject json, uint8_t num){
-  String id = String(json["payload"]["id"]);
-           doc[id]["id"] = json["payload"]["id"];
-           doc[id]["temperature"] = json["payload"]["temperature"];
-           doc[id]["light"] = json["payload"]["light"];
-           doc[id]["compressor"] = json["payload"]["compressor"];
-           doc[id]["status"] = json["payload"]["status"];
-           doc[id]["temperature_max"] = json["payload"]["temperature_max"];
-           doc[id]["temperature_min"] = json["payload"]["temperature_min"];
-           doc[id]["ip"] = webSocket.remoteIP(num).toString();
-           doc[id]["num"] = num;
-}
+//     // Sample for the usage of the client info methods
 
-void toggleLight(JsonObject json){
-  DynamicJsonDocument response(1024);
-  String responseText;
-  String id = String(json["payload"]["id"]);
-  int num = doc["devices"][id]["num"];
+//     virtual void printClients() {
+//       for (int i = 0; i < getClientCount(); i++) {
+//         IPAddress addr;
+//         String client_id;
+         
+//         getClientAddr(i, addr);
+//         getClientId(i, client_id);
+//         Serial.println("Client "+client_id+" on addr: "+addr.toString());
+//       }
+//     }
+// };
 
-  response["action"] = "toggleLight";
-  serializeJson(response, responseText);
-  webSocket.sendTXT(num, responseText);
-}
+// FridgeMQTTBroker myBroker;
 
-String getStringMessage(uint8_t * payload, size_t length){
-  String message = "";
-  for(int i = 0; i < length; i++) {
-    message = message + (char) payload[i]; 
+void onAction(JsonObject json){
+  String action = json[String("action")];
+
+  if(action.equals("sendState")){
+     Serial.println("Recibir y almacenar estado de la nevera");
+    //  setData(json, num);
   }
-  return message;
+  if(action.equals("confirmConnection")){
+    Serial.println("La conexion de la nevera fue verificada y se actualiza los datos");
+  }
+  if(action.equals("error")){
+    Serial.println("Se recibio un error de la nevera");
+  }
+  if(action.equals("toggleLight")){
+    Serial.println("Indicarle a la nevera seleccionada que prenda la luz");
+    // toggleLight(json);
+  }
+  if(action.equals("setMaxTemperature")){
+    Serial.println("Indicarle a la nevera seleccionada que cambie su nivel maximo de temperature");
+    // setMaxTemperature(json);
+  }
+  if(action.equals("setMinTemperature")){
+    Serial.println("Indicarle a la nevera seleccionada que cambie su nivel minimo de temperature");
+    // setMinTemperature(json);
+  }
+  if(action.equals("setMaxTemperatureForAll")){
+    Serial.println("Indicarle a todas las neveras que cambien su nivel maximo de temperature");
+  }
+  if(action.equals("setMinTemperatureForAll")){
+    Serial.println("Indicarle a todas las neveras que cambien su nivel minimo de temperature");
+  }
+  if(action.equals("delete")){
+    Serial.println("Eliminar la nevera indicada");
+    // String id = String(json["payload"]["id"]);
+    // deleteDevice(id);
+  }
+  if(action.equals("deleteAll")){
+    Serial.println("Eliminar todas las neveras");
+  }
 }
 
+/// Setup
+void startWifiAp(){
+  // Init WiFi
+  Serial.println("Connecting to wifi");
+  IPAddress apIP(192, 168, 0, 1);   //Static IP for wifi gateway
+  WiFi.softAPConfig(apIP, apIP, IPAddress(255, 255, 255, 0)); //set Static IP gateway on NodeMCU
+  WiFi.softAP(ssid, pass); //turn on WIFI
 
-void onMessage(JsonObject json, uint8_t num){
-        String action = json[String("action")];
-      
-        if(action.equals("sendState")){
-           Serial.println("Recibir y almacenar estado de la nevera");
-           setData(json, num);
-        }
-        if(action.equals("confirmConnection")){
-          Serial.println("La conexion de la nevera fue verificada y se actualiza los datos");
-        }
-        if(action.equals("error")){
-          Serial.println("Se recibio un error de la nevera");
-        }
-
-        if(action.equals("toggleLight")){
-          Serial.println("Indicarle a la nevera seleccionada que prenda la luz");
-          toggleLight(json);
-        }
-        if(action.equals("setMaxTemperature")){
-          Serial.println("Indicarle a la nevera seleccionada que cambie su nivel maximo de temperature");
-          setMaxTemperature(json);
-        }
-        if(action.equals("setMinTemperature")){
-          Serial.println("Indicarle a la nevera seleccionada que cambie su nivel minimo de temperature");
-          setMinTemperature(json);
-        }
-        if(action.equals("setMaxTemperatureForAll")){
-          Serial.println("Indicarle a todas las neveras que cambien su nivel maximo de temperature");
-        }
-        if(action.equals("setMinTemperatureForAll")){
-          Serial.println("Indicarle a todas las neveras que cambien su nivel minimo de temperature");
-        }
-        if(action.equals("delete")){
-          Serial.println("Eliminar la nevera indicada");
-          String id = String(json["payload"]["id"]);
-          deleteDevice(id);
-        }
-        if(action.equals("deleteAll")){
-          Serial.println("Eliminar todas las neveras");
-        }
-}
-
-void webSocketEvent(uint8_t num, WStype_t type, uint8_t * payload, size_t length) {
-
-    String cmd;
-    DynamicJsonDocument docInput(1024);
-    JsonObject objReceived;
-    
-    if(type == WStype_TEXT){
-      cmd = getStringMessage(payload, length);
-      deserializeJson(docInput, cmd);
-      objReceived = docInput.as<JsonObject>();
-      String action = objReceived[String("action")];
-      
-      onMessage(objReceived, num);
-      
-    }
-    
-    switch(type) {
-        case WStype_DISCONNECTED:
-            Serial.println("Websocket is disconnected");
-            //case when Websocket is disconnected
-            break;
-        case WStype_CONNECTED:
-
-            Serial.println("Websocket is connected");
-            Serial.println(webSocket.remoteIP(num).toString());
-            sendConnected(num);
-            break;
-        case WStype_TEXT:
-            cmd = "";
-            for(int i = 0; i < length; i++) {
-                cmd = cmd + (char) payload[i]; 
-            } //merging payload to single string
-
-            // if(cmd == "poweron"){ //when command from app is "poweron"
-            //     digitalWrite(ledpin, HIGH);
-            //     webSocket.sendTXT(num, "poweron:success");
-            //     //make ledpin output to HIGH  
-            // }else if(cmd == "poweroff"){
-            //     digitalWrite(ledpin, LOW);
-            //     webSocket.sendTXT(num, "poweroff:success");
-            //     //make ledpin output to LOW on 'pweroff' command.
-            // }
-            
-             
-//             doc["devices"][num]["temp"] = objReceived[String("temp")];
-//             doc["devices"][num]["id"] = objReceived[String("id")]; 
-//            
-             //webSocket.sendTXT(num, ":success");
-
-             //send response to mobile, if command is "poweron" then response will be "poweron:success"
-             //this response can be used to track down the success of command in mobile app.
-            break;
-        case WStype_FRAGMENT_TEXT_START:
-            break;
-        case WStype_FRAGMENT_BIN_START:
-            break;
-        case WStype_BIN:
-            hexdump(payload, length);
-            break;
-        default:
-            break;
-    }
 }
 
 void setup() {
    // Init Debug Tools
-   pinMode(ledpin, OUTPUT); //set ledpin (D2) as OUTPUT pin
    Serial.begin(9600); //serial start
 
    // Init WiFi
-   Serial.println("Connecting to wifi");
-   IPAddress apIP(192, 168, 0, 1);   //Static IP for wifi gateway
-   WiFi.softAPConfig(apIP, apIP, IPAddress(255, 255, 255, 0)); //set Static IP gateway on NodeMCU
-   WiFi.softAP(ssid, pass); //turn on WIFI
+   startWifiAp();
 
-   // Init WebSocket
-   webSocket.begin(); //websocket Begin
-   webSocket.onEvent(webSocketEvent); //set Event for websocket
-   Serial.println("Websocket is started");
-
-    
-   // Sensor 
-   sensorDS18B20.begin();
-   Serial.println("Sensor is started");
-
-   // Inicio temporizador
-   ultimaTemp = millis();
-  
 }
 
 void loop() {
-   webSocket.loop(); //keep this line on loop method
-
-  // Protección overflow
-  if (ultimaTemp > millis()) {
-    ultimaTemp = millis();
-  }
-
-  // Comprobar si ha pasado el tiempo
-  if (millis() - ultimaTemp > tiempoTemp) {
-    // Marca de tiempo
-    ultimaTemp = millis();
-    
-    // Mandamos comandos para toma de temperatura a los sensores
-    sensorDS18B20.requestTemperatures();
-    
-    
-    int temperature = int(sensorDS18B20.getTempCByIndex(0));
-    // Leemos y mostramos los datos de los sensores DS18B20
-//    Serial.print("Temperatura sensor: ");
-//    Serial.print(temperature);
-//    Serial.println(" C");
-
-    // String buf;
-    // serializeJson(doc, buf);
-    // Serial.println(buf);
-    // webSocket.broadcastTXT(buf);
-
-   
-    
-  }
+  Serial.println("Hola mundo");
+  sleep(2);
 }
