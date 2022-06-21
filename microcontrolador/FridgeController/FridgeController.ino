@@ -27,6 +27,7 @@ DynamicJsonDocument memoryJson(capacity); // State, sensors, outputs...
 
 /// WIFI Connection
 
+
 /// TODO: Guardar informacion en memoria, para persistir datos.
 // My Wifi (Standalone)
 String ssid     = id; // Nombre del wifi en modo standalone
@@ -41,6 +42,7 @@ bool notifyState = false;
 /// Configuration mode
 bool configurationMode = true;
 bool configurationModeLightOn = false;
+String configurationInfoStr = "";
 
 /// BLUETOOTH
 SoftwareSerial btSerial(D2, D3); // Rx,Tx
@@ -62,6 +64,7 @@ JsonObject toJson(String str){
 String jsonToString(DynamicJsonDocument json){
   String buf;
   serializeJson(json, buf);
+
   return buf;
 }
 
@@ -78,6 +81,7 @@ void setState(){
   state["ssid"] = ssid;
   state["ssidCoordinator"] = ssidCoordinator;
 
+
   // SSID Coordinator just if standalone is false;
   // if (!standalone){
   // }
@@ -89,6 +93,7 @@ void setInformation(){
   information["id"] = id;
   information["ssid"] = ssid;
   information["standalone"] = standalone;
+  information["configurationMode"] = configurationMode;
 }
 
 void getMemoryData(){
@@ -118,6 +123,8 @@ void getMemoryData(){
     maxTemperature = json["maxTemperature"];
     ssid = String(json["ssid"]);
     ssidCoordinator = String(json["ssidCoordinator"]);
+    password = String(json["password"]);
+    passwordCoordinator = String(json["passwordCoordinator"]);
     standalone = bool(json["standalone"]);
   }
 
@@ -130,6 +137,8 @@ void setMemoryData(){
   memoryJson["standalone"] = standalone;
   memoryJson["ssid"] = ssid;
   memoryJson["ssidCoordinator"] = ssidCoordinator;
+  memoryJson["password"] = password;
+  memoryJson["passwordCoordinator"] = passwordCoordinator;
   memoryJson["configurationMode"] = configurationMode;
 
   EepromStream eepromStream(0, 1024);
@@ -220,9 +229,10 @@ void publishState(){
 }
 
 void publishInformation (){
-  String informationEncoded = jsonToString(state);
+  String informationEncoded = jsonToString(information);
   if(standalone){
     // Publish on Standalone Mode
+    Serial.println(informationEncoded);
     myBroker.publish("information", informationEncoded);
   }else{
     // TODO: Publish on Coordinator Mode
@@ -295,15 +305,16 @@ void setup() {
   
   delay(5000);
   getMemoryData();
-  if (configurationMode){
-    /// Setup WiFi
-    setupWifi();
+  /// Setup WiFi
+  setupWifi();
+  setInformation();
+  publishInformation();
+  
+  if (!configurationMode){
 
     // Initilize JSON with the state of the Fridge and initialize the topic
     setState();
-    setInformation();
     publishState();
-    publishInformation();
 
   }
 
@@ -314,12 +325,8 @@ void setup() {
 void loop() {
   
   readTemperature();
+
   if (!configurationMode) {
-    if (configurationMode && !configurationModeLightOn){
-  
-      digitalWrite(CONFIGURATION_MODE_OUTPUT, HIGH);
-      configurationModeLightOn = true;
-    }
 
     // Publish info
     if (notifyInformation){
@@ -338,8 +345,25 @@ void loop() {
 
   }
   else {
+    
     Serial.println("Esperando configuración...");
-    readDataFromBluetooth();
+    // readDataFromBluetooth();
+    if (!configurationModeLightOn){
+      Serial.println("Encendiendo luces de modo de configuración...");
+      
+      digitalWrite(CONFIGURATION_MODE_OUTPUT, HIGH);
+      configurationModeLightOn = true;
+    }
+
+    // Publish info
+    if (notifyInformation){
+      Serial.println("Notificando informacion");
+      setInformation();
+      publishInformation();
+
+      notifyInformation = false;
+    }
+
   }
 
 
@@ -348,28 +372,13 @@ void loop() {
 
 }
 
-/// SETUP
-
-void readDataFromBluetooth(){
-  // delay(2000);
-  // Serial.println("Leyendo desde bluetooth ");
-   // Check if bluetooth module sends some data to esp8266
-  if (btSerial.available() >= 1) {   
-    // read the data from HC-05
-    char data = btSerial.read();  
-    Serial.print("Data: ");
-    Serial.println(data);
-  }
-  // else {
-  //   Serial.println("No disponible o sin datos");
-    
-  // }
-}
 
 /// ACTIONS ///
 
 void onAction(JsonObject json){
   String action = json["action"];
+
+  if (configurationMode) return;
 
   if(action.equals("toggleLight")){
     Serial.println("Indicarle a la nevera seleccionada que prenda la luz");
