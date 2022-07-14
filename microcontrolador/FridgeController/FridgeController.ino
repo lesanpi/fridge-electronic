@@ -4,6 +4,7 @@
 #include "uMQTTBroker.h"
 #include "StreamUtils.h"
 #include <SoftwareSerial.h>
+#include "EspMQTTClient.h"
 
 #define CONFIGURATION_MODE_OUTPUT D5 
 
@@ -27,8 +28,6 @@ DynamicJsonDocument memoryJson(capacity); // State, sensors, outputs...
 
 /// WIFI Connection
 
-
-/// TODO: Guardar informacion en memoria, para persistir datos.
 // My Wifi (Standalone)
 String ssid     = id; // Nombre del wifi en modo standalone
 String password = "12345678"; // Clave del wifi en modo standalone
@@ -43,12 +42,6 @@ bool notifyState = false;
 bool configurationMode = true;
 bool configurationModeLightOn = false;
 String configurationInfoStr = "";
-
-/// BLUETOOTH
-SoftwareSerial btSerial(D2, D3); // Rx,Tx
-
-
-/// JSON ///
 
 // Convert to json
 JsonObject toJson(String str){
@@ -96,6 +89,7 @@ void setInformation(){
   information["configurationMode"] = configurationMode;
 }
 
+/// Obtener los datos en memoria
 void getMemoryData(){
   DynamicJsonDocument doc(1024);
   JsonObject json;
@@ -110,8 +104,10 @@ void getMemoryData(){
   // Serial.println("Modo configuracion: "+ bool(json["configurationMode"]));
   // Serial.println(String(json["configurationMode"]) == "null");
 
-  if (String(json["configurationMode"]) == "null" || bool(json["configurationMode"]) == true){
-    
+
+  /// TODO: Cambiar para cuando el modo configuracion este listo
+  // if (String(json["configurationMode"]) == "null" || bool(json["configurationMode"]) == true){
+  if (false){    
     Serial.println("Activando modo de configuracion");
     configurationMode = true;
     
@@ -122,14 +118,30 @@ void getMemoryData(){
     minTemperature = json["minTemperature"];
     maxTemperature = json["maxTemperature"];
     ssid = String(json["ssid"]);
-    ssidCoordinator = String(json["ssidCoordinator"]);
+    String ssidCoordinatorMemory = String(json["ssidCoordinator"]);
     password = String(json["password"]);
-    passwordCoordinator = String(json["passwordCoordinator"]);
+    String passwordCoordinatorMemory = String(json["passwordCoordinator"]);
+
+    Serial.print("ssidCoordinator obtenido en memoria: ");
+    Serial.println(ssidCoordinatorMemory);
+    Serial.println(ssidCoordinator);
+    if(ssidCoordinatorMemory != ""){
+      ssidCoordinator = ssidCoordinatorMemory;
+    }
+
+    Serial.print("passwordCoordinator obtenido en memoria: ");
+    Serial.println(passwordCoordinatorMemory);
+    Serial.println(passwordCoordinator);
+    if(passwordCoordinatorMemory != ""){
+      passwordCoordinator = passwordCoordinatorMemory;
+    }
+    
     standalone = bool(json["standalone"]);
   }
 
 }
 
+/// Guardar los datos en memoria
 void setMemoryData(){
   memoryJson["id"] = id;
   memoryJson["maxTemperature"] = maxTemperature;
@@ -141,14 +153,14 @@ void setMemoryData(){
   memoryJson["passwordCoordinator"] = passwordCoordinator;
   memoryJson["configurationMode"] = configurationMode;
 
-  EepromStream eepromStream(0, 1024);
+  EepromStream eepromStream(0, 2048);
   serializeJson(memoryJson, eepromStream);
   EEPROM.commit();
 
 }
 
-/// MQTT Broker ///
-
+/// MQTT Broker 
+/// Usado para crear el servidor MQTT en modo independiente
 class FridgeMQTTBroker: public uMQTTBroker
 {
 public:
@@ -213,7 +225,16 @@ public:
     }
 };
 
+/// MQTT Servidor para Modo Independiente
 FridgeMQTTBroker myBroker;
+/// MQTT Cliente para Mode Coordinado
+EspMQTTClient mqttClient(
+  "192.168.0.1",
+  1883,
+  "MQTTUsername", 
+  "MQTTPassword",
+  "id"
+);
 
 /// Publish state. Used to initilize the topic and when the state changes
 /// publish the state in the correct topic according if the fridge is working on standole mode or not.
@@ -224,10 +245,11 @@ void publishState(){
     myBroker.publish("state/" + id, stateEncoded);
   }else{
     /// TODO: Publish on Coordinator Mode
-
+    mqttClient.publish("state/" + id, stateEncoded);
   }
 }
 
+/// Publicar la información de la comunicación/conexión
 void publishInformation (){
   String informationEncoded = jsonToString(information);
   if(standalone){
@@ -236,59 +258,133 @@ void publishInformation (){
     myBroker.publish("information", informationEncoded);
   }else{
     // TODO: Publish on Coordinator Mode
-
+    
   }
 }
 
-/// WIFI ///
+/// Publicar errores
+void publishError(String errorMessage){
+  /// topic 'error/id'
 
+
+}
+
+///
+/// WIFI ///
+///
+
+/// Conexión al Wifi como cliente
 void startWiFiClient()
 {
-  Serial.println("Connecting to "+(String)ssid);
+  // Serial.println(ssidCoordinator);
+  /// Desconexion por si acaso hubo una conexion previa
+  WiFi.disconnect();
+  /// Modo estacion, por si hubo un modo diferente previamente.
   WiFi.mode(WIFI_STA);
-  WiFi.begin(ssid, password);
+  
+  /// Conexion al coordinador
+  // WiFi.begin("coordinador-07-test", "12345678");
+  WiFi.begin(ssidCoordinator, passwordCoordinator);
+  Serial.print("Conectandome al coordinador...");
+  Serial.println(ssidCoordinator);
+  Serial.println(passwordCoordinator);
+  Serial.print("Conectandome al coordinador...");
+  delay(500);
+  /// Contador de intentos
   int tries = 0;
   while (WiFi.status() != WL_CONNECTED) {
+    /// Esperar medio segundo entre intervalo
+    // WiFi.begin(ssidCoordinator, passwordCoordinator);
     delay(500);
+
+    /// Reconectarme
     Serial.print(".");
     tries = tries + 1;
-    if (tries > 60){
+    /// 
+    if (tries > 30){
       startWiFiAP();
       standalone = true;
       return;
-    }
+    } 
+    /// Reintentar conexion.
+    // WiFi.begin(ssidCoordinator, passwordCoordinator);
   }
-  
-  Serial.println("");
-  Serial.println("WiFi connected");
+  Serial.println();
+
+  Serial.print("WiFi connected ");
   Serial.println("IP address: " + WiFi.localIP().toString());
+
+  /// Conectarse al servidor MQTT del Coordinador y suscribirse a los topicos.
+  Serial.println("Conectarse al Servidor MQTT");
+  mqttClient.setMqttServer("192.168.0.1", "MQTTUsername", "MQTTPassword", 1883);
+  mqttClient.setOnConnectionEstablishedCallback(onConnectionEstablished); 
 }
 
+/// Creación del punto de acceso (WiFI)
 void startWiFiAP()
 {
+  /// Modo Punto de Acceso.
   WiFi.mode(WIFI_AP);
+  IPAddress apIP(192, 168, 0, 1);   //Static IP for wifi gateway
+  /// Inicializo Gateway, Ip y Mask
+  WiFi.softAPConfig(apIP, apIP, IPAddress(255, 255, 255, 0)); //set Static IP gateway on NodeMCU
+  /// Nombre y clave del wifi
   WiFi.softAP(ssid, password);
-  
   Serial.println("AP started");
   Serial.println("IP address: " + WiFi.softAPIP().toString());
+
+
+  // Start the broker
+  Serial.println("Starting MQTT Broker");
+  // Inicializo el servidor MQTT
+  myBroker.init();
+  // Suscripcion a los topicos de interes
+  myBroker.subscribe("state/" + id);
+  myBroker.subscribe("action/" + id);
+  /// TODO: suscribirse a tema de error, que comunica mensaje de error
 }
 
+/// Configurar el WIFI y MQTT
 void setupWifi(){
-  /// Standalone Mode
+
+  /// Standalone Mode, configurar punto de acceso (WiFI) y el servidor MQTT
+  /// para el modo independiente
   if (standalone){
     // We start by connecting to a WiFi network or create the AP
+    Serial.println("Creando Wifi Independiente y Servidor MQTT");
     startWiFiAP();
-    // Start the broker
-    Serial.println("Starting MQTT Broker");
-    myBroker.init();
-    myBroker.subscribe("state/" + id);
-    myBroker.subscribe("action/" + id);
   }
-  /// Coordinator Mode
+  /// Coordinator Mode, conectarse al wifi del coordinador y conectarse al servidor MQTT del coordinador.
   else{
+    Serial.println("Conectarse al Wifi del Coordinador y al servidor MQTT");
     startWiFiClient();
-    /// TODO: connect to local MQTT Broker and subscribe to topics
+    
   }
+}
+
+/// Funcion llamada una vez que el cliente MQTT establece la conexión.
+/// funciona para el modo independiente solamente
+void onConnectionEstablished(){
+  mqttClient.subscribe("state/" + id, [](const String & payload) {
+    Serial.println(payload);
+
+  });
+
+  mqttClient.subscribe("action/" + id, [](const String & payload) {
+    Serial.println(payload);
+
+    // Convert to JSON.
+    DynamicJsonDocument docInput(1024); 
+    JsonObject json;
+    deserializeJson(docInput, (String)payload);
+    json = docInput.as<JsonObject>();
+    // Ejecutar las acciones
+    onAction(json);
+    // Guardar el estado
+    setState();
+    publishState();
+
+  });
 }
 
 
@@ -297,8 +393,8 @@ void setup() {
   EEPROM.begin(1024);
   /// Logs
   Serial.begin(115200);
-  /// Bluetooth module baudrate 
-  btSerial.begin(9600);     
+  ///// Bluetooth module baudrate 
+  // btSerial.begin(9600);     
 
   /// Configuration mode light output
   pinMode(CONFIGURATION_MODE_OUTPUT, OUTPUT);
@@ -324,12 +420,16 @@ void setup() {
 
 void loop() {
   
+  // Mantener activo el cliente MQTT (Modo Independietne)
+  mqttClient.loop();
+  // Leer temperature
   readTemperature();
 
-  if (!configurationMode) {
+  if (true) {
 
     // Publish info
     if (notifyInformation){
+      delay(1000);
       setInformation();
       publishInformation();
 
@@ -341,6 +441,10 @@ void loop() {
       setState();
       publishState();
       notifyState = false;
+    }
+
+    if (!standalone){
+      mqttClient.loop();
     }
 
   }
@@ -372,13 +476,13 @@ void loop() {
 
 }
 
-
-/// ACTIONS ///
-
+/// Funcion llamada cada vez que se recibe una publicacion en el tópico 'actions/{id}'
+/// la funcion descubre cual accion es la requerida usando el json, y le pasa los parametros 
+/// a traves del propio json
 void onAction(JsonObject json){
   String action = json["action"];
 
-  if (configurationMode) return;
+  // if (configurationMode) return;
 
   if(action.equals("toggleLight")){
     Serial.println("Indicarle a la nevera seleccionada que prenda la luz");
@@ -401,9 +505,20 @@ void onAction(JsonObject json){
     setStandaloneMode(_newSsid);
   }
 
+  if(action.equals("setCoordinatorMode")){
+    Serial.println("Cambiar a modo coordinado");
+    String _newSsidCoordinator = json["ssid"];
+    String _newPasswordCoordinator = json["password"];
+    setCoordinatorMode(_newSsidCoordinator, _newPasswordCoordinator);
+  }
+
 }
 
-/// Read temperature
+///
+/// FUNCIONES PARA ACCIONES ///
+///         
+
+/// Lectura de temperatura a través del sensor.
 void readTemperature(){
   int temperatureRead = random(0, 2);
   if (temperatureRead != temperature){
@@ -413,34 +528,44 @@ void readTemperature(){
 
 }
 
-/// Turn on/off the light
+/// Encender o apagar la luz
 void toggleLight(){
   light = !light;
   /// TODO: turn on the light using digital output.
   notifyState = true;
 }
 
-/// Set max temperature
+/// Cambiar el parametro de temperatura máxima.
 void setMaxTemperature(int newMaxTemperature){
   maxTemperature = newMaxTemperature;
   notifyState = true;
   setMemoryData();
 }
 
-/// Set min temperature
+/// Cambiar el parametro de temperatura mínima.
 void setMinTemperature(int newMinTemperature){
   minTemperature = newMinTemperature;
   notifyState = true;
   setMemoryData();
 }
 
-/// Set standalone mode.
+/// Cambiar a modo independiente, nombre del wifi y contraseña.
 void setStandaloneMode(String newSsid){
   standalone = true;
   WiFi.mode(WIFI_OFF);  
   ssid = newSsid;
-  setupWifi();
   setMemoryData();
+  setupWifi();
+
+}
+
+void setCoordinatorMode(String ssid, String password){
+  standalone = false;
+  ssidCoordinator = ssid;
+  passwordCoordinator = password;
+  setMemoryData();
+  WiFi.mode(WIFI_OFF);  
+  setupWifi();
 
 }
 
