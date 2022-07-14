@@ -13,6 +13,7 @@ char host[] = "192.168.0.1";
 
 /// State of the Fridge
 String id = "nevera-07-test";
+String name = "nevera-07-test";
 bool light = false; // Salida luz
 bool compressor = false; // Salida compressor
 bool door = false; // Sensor puerta abierta/cerrada
@@ -64,6 +65,7 @@ String jsonToString(DynamicJsonDocument json){
 /// Initilize or update the JSON State of the Fridge.
 void setState(){
   state["id"] = id;
+  state["name"] = name;
   state["temperature"] = temperature;
   state["light"] = light;
   state["compressor"] = compressor;
@@ -100,14 +102,14 @@ void getMemoryData(){
 
 
   /// Getting the memory data if the configuration mode is false
-  // Serial.println("Modo configuracion: "+ String(json["configurationMode"]));
-  // Serial.println("Modo configuracion: "+ bool(json["configurationMode"]));
-  // Serial.println(String(json["configurationMode"]) == "null");
+  Serial.println("Modo configuracion: "+ String(json["configurationMode"]));
+  Serial.println("Modo configuracion: "+ bool(json["configurationMode"]));
+  Serial.println(String(json["configurationMode"]) == "null");
 
 
   /// TODO: Cambiar para cuando el modo configuracion este listo
-  // if (String(json["configurationMode"]) == "null" || bool(json["configurationMode"]) == true){
-  if (false){    
+  if (String(json["configurationMode"]) == "null" || bool(json["configurationMode"]) == true){
+  // if (false){    
     Serial.println("Activando modo de configuracion");
     configurationMode = true;
     
@@ -118,6 +120,7 @@ void getMemoryData(){
     minTemperature = json["minTemperature"];
     maxTemperature = json["maxTemperature"];
     ssid = String(json["ssid"]);
+    name = String(json["name"]);
     String ssidCoordinatorMemory = String(json["ssidCoordinator"]);
     password = String(json["password"]);
     String passwordCoordinatorMemory = String(json["passwordCoordinator"]);
@@ -144,6 +147,7 @@ void getMemoryData(){
 /// Guardar los datos en memoria
 void setMemoryData(){
   memoryJson["id"] = id;
+  memoryJson["name"] = name;
   memoryJson["maxTemperature"] = maxTemperature;
   memoryJson["minTemperature"] = minTemperature;
   memoryJson["standalone"] = standalone;
@@ -228,7 +232,7 @@ public:
 /// MQTT Servidor para Modo Independiente
 FridgeMQTTBroker myBroker;
 /// MQTT Cliente para Mode Coordinado
-EspMQTTClient mqttClient(
+EspMQTTClient localClient(
   "192.168.0.1",
   1883,
   "MQTTUsername", 
@@ -245,7 +249,7 @@ void publishState(){
     myBroker.publish("state/" + id, stateEncoded);
   }else{
     /// TODO: Publish on Coordinator Mode
-    mqttClient.publish("state/" + id, stateEncoded);
+    localClient.publish("state/" + id, stateEncoded);
   }
 }
 
@@ -316,8 +320,8 @@ void startWiFiClient()
 
   /// Conectarse al servidor MQTT del Coordinador y suscribirse a los topicos.
   Serial.println("Conectarse al Servidor MQTT");
-  mqttClient.setMqttServer("192.168.0.1", "MQTTUsername", "MQTTPassword", 1883);
-  mqttClient.setOnConnectionEstablishedCallback(onConnectionEstablished); 
+  localClient.setMqttServer("192.168.0.1", "MQTTUsername", "MQTTPassword", 1883);
+  localClient.setOnConnectionEstablishedCallback(onConnectionEstablished); 
 }
 
 /// Creación del punto de acceso (WiFI)
@@ -365,12 +369,12 @@ void setupWifi(){
 /// Funcion llamada una vez que el cliente MQTT establece la conexión.
 /// funciona para el modo independiente solamente
 void onConnectionEstablished(){
-  mqttClient.subscribe("state/" + id, [](const String & payload) {
+  localClient.subscribe("state/" + id, [](const String & payload) {
     Serial.println(payload);
 
   });
 
-  mqttClient.subscribe("action/" + id, [](const String & payload) {
+  localClient.subscribe("action/" + id, [](const String & payload) {
     Serial.println(payload);
 
     // Convert to JSON.
@@ -421,15 +425,15 @@ void setup() {
 void loop() {
   
   // Mantener activo el cliente MQTT (Modo Independietne)
-  mqttClient.loop();
+  localClient.loop();
   // Leer temperature
   readTemperature();
 
-  if (true) {
+  if (!configurationMode) {
 
     // Publish info
     if (notifyInformation){
-      delay(1000);
+      delay(500);
       setInformation();
       publishInformation();
 
@@ -444,7 +448,7 @@ void loop() {
     }
 
     if (!standalone){
-      mqttClient.loop();
+      localClient.loop();
     }
 
   }
@@ -461,7 +465,7 @@ void loop() {
 
     // Publish info
     if (notifyInformation){
-      Serial.println("Notificando informacion");
+      delay(500);
       setInformation();
       publishInformation();
 
@@ -482,7 +486,30 @@ void loop() {
 void onAction(JsonObject json){
   String action = json["action"];
 
-  // if (configurationMode) return;
+  if (configurationMode){
+    
+    if (action.equals("configureDevice")){
+      Serial.println("Configurando dispositivo");
+      String name = json["name"];
+      int maxTemperature = json["maxTemperature"];
+      int minTemperature = json["minTemperature"];
+      String _ssid = json["ssid"];
+      String _password = json["password"];
+      bool _standalone = json["standalone"];
+      String _ssidCoordinator = json["ssidCoordinator"];
+      String _passwordCoordinator = json["passwordCoordinator"];
+
+      configureDevice(name, _ssid, _password, _ssidCoordinator, _passwordCoordinator, _standalone, maxTemperature, minTemperature);
+    }
+    
+    return;
+  } 
+
+  if(action.equals("changeName")){
+    Serial.println("Cambiar el nombre a la nevera");
+    String _newName = json["name"];
+    changeName(_newName);
+  }
 
   if(action.equals("toggleLight")){
     Serial.println("Indicarle a la nevera seleccionada que prenda la luz");
@@ -528,10 +555,17 @@ void readTemperature(){
 
 }
 
+/// Cambiar nombre
+void changeName(String newName){
+  name = newName;
+  notifyState = true;
+  setMemoryData();
+}
+
 /// Encender o apagar la luz
 void toggleLight(){
   light = !light;
-  /// TODO: turn on the light using digital output.
+  // TODO(calg): encender luz usando digitalWrite()
   notifyState = true;
 }
 
@@ -550,6 +584,7 @@ void setMinTemperature(int newMinTemperature){
 }
 
 /// Cambiar a modo independiente, nombre del wifi y contraseña.
+// TODO(lesanpi): que reciba tambien la contraseña
 void setStandaloneMode(String newSsid){
   standalone = true;
   WiFi.mode(WIFI_OFF);  
@@ -559,6 +594,7 @@ void setStandaloneMode(String newSsid){
 
 }
 
+/// Cambia a modo coordinador, indicando el nombre y contraseña del Wifi
 void setCoordinatorMode(String ssid, String password){
   standalone = false;
   ssidCoordinator = ssid;
@@ -569,3 +605,26 @@ void setCoordinatorMode(String ssid, String password){
 
 }
 
+/// Configurar dispositivo cuando esta en modo configuración
+// TODO(lesanpi): Falta ssid y password del wifi con internet.
+void configureDevice(
+  String name,
+  String ssid, 
+  String password, 
+  String coordinatorSsid, 
+  String coordinatorPassword, 
+  bool standalone,
+  int maxTemperature,
+  int minTemperature
+  ){
+  
+  configurationMode = false;
+  changeName(name);
+  setMaxTemperature(maxTemperature);
+  setMinTemperature(minTemperature);
+  setStandaloneMode(ssid);
+  if (standalone){
+    setCoordinatorMode(coordinatorSsid, coordinatorPassword);
+  }
+
+}
