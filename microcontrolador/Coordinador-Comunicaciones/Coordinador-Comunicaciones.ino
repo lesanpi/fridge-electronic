@@ -1,6 +1,7 @@
 #include <Arduino.h>
 #include <ESP8266WiFi.h>
 #include <ArduinoJson.h>
+#include <SoftwareSerial.h>
 #include "StreamUtils.h"
 #include "uMQTTBroker.h"
 
@@ -12,7 +13,6 @@
 // Data
 String id = "coordinador-07-test";
 String name = "";
-
 // Wifi Access Point
 String ssid     = id; // Nombre del wifi en modo standalone
 String password = "12345678"; //wifi password
@@ -23,6 +23,7 @@ bool notifyInformation = false;
 /// Configuration mode
 bool configurationMode = true;
 bool configurationModeLightOn = false;
+String configurationInfoStr = "";
 
 // State JSON
 const size_t capacity = 1024; 
@@ -50,12 +51,14 @@ String jsonToString(DynamicJsonDocument json){
 void setInformation(){
   information["id"] = id;
   information["ssid"] = ssid;
+  information["name"] = name;
   information["standalone"] = false;
   information["configurationMode"] = configurationMode;
 }
 
 void setMemoryData(){
   memoryJson["id"] = id;
+  memoryJson["name"] = name;
   memoryJson["ssid"] = ssid;
   memoryJson["password"] = password;
   memoryJson["configurationMode"] = configurationMode;
@@ -63,6 +66,38 @@ void setMemoryData(){
   EepromStream eepromStream(0, 1024);
   serializeJson(memoryJson, eepromStream);
   EEPROM.commit();
+
+}
+
+void getMemoryData(){
+  DynamicJsonDocument doc(1024);
+  JsonObject json;
+  // deserializeJson(docInput, str);
+  EepromStream eepromStream(0, 1024);
+  deserializeJson(doc, eepromStream);
+  json = doc.as<JsonObject>();
+
+
+  /// Getting the memory data if the configuration mode is false
+  Serial.println("Modo configuracion: "+ String(json["configurationMode"]));
+  Serial.println("Modo configuracion: "+ bool(json["configurationMode"]));
+  Serial.println(String(json["configurationMode"]) == "null");
+
+
+  /// TODO: Cambiar para cuando el modo configuracion este listo
+  if (String(json["configurationMode"]) == "null" || bool(json["configurationMode"]) == true){
+  // if (false){    
+    Serial.println("Activando modo de configuracion");
+    configurationMode = true;
+    
+  } else {
+    
+    Serial.println("Obteniendo datos en memoria");
+    configurationMode = false;
+    ssid = String(json["ssid"]);
+    name = String(json["name"]);
+    password = String(json["password"]);
+  }
 
 }
 
@@ -135,7 +170,19 @@ void publishInformation (){
 
 void onAction(JsonObject json){
   String action = json[String("action")];
+  if (configurationMode){
+    
+    if (action.equals("configureCoordinator")){
+      Serial.println("Configurando dispositivo");
+      String name = json["name"];
+      String _ssid = json["ssid"];
+      String _password = json["password"];
 
+      configureDevice(name, _ssid, _password);
+    }
+    
+    return;
+  } 
   if(action.equals("sendState")){
      Serial.println("Recibir y almacenar estado de la nevera");
     //  setData(json, num);
@@ -189,9 +236,15 @@ void startWifiAp(){
 
 
 void setup() {
-   // Init Debug Tools
+  /// Memory
+  EEPROM.begin(1024);
+  /// Init Debug Tools
   Serial.begin(9600); //serial start
+  /// Configuration mode light output
+  pinMode(CONFIGURATION_MODE_OUTPUT, OUTPUT);
 
+  delay(5000);
+  getMemoryData();
   // Init WiFi
   startWifiAp();
   // Start the broker
@@ -206,13 +259,68 @@ void setup() {
 }
 
 void loop() {
-  // Publish info
-  if (notifyInformation){
-    delay(1000);
+  if (!configurationMode) {
+  
+    // Publish info
+    if (notifyInformation){
+      delay(1000);
 
-    setInformation();
-    publishInformation();
-    notifyInformation = false;
+      setInformation();
+      publishInformation();
+      notifyInformation = false;
+    }
+  }else {
+    Serial.println("Esperando configuración...");
+    // readDataFromBluetooth();
+    if (!configurationModeLightOn){
+      Serial.println("Encendiendo luces de modo de configuración...");
+      
+      digitalWrite(CONFIGURATION_MODE_OUTPUT, HIGH);
+      configurationModeLightOn = true;
+    }
+
+    // Publish info
+    if (notifyInformation){
+      delay(500);
+      setInformation();
+      publishInformation();
+
+      notifyInformation = false;
+    }
   }
-  // sleep(2);
+  
+}
+
+/// Cambiar nombre
+void changeName(String newName){
+  name = newName;
+  notifyInformation = true;
+  setMemoryData();
+}
+
+/// Cambia el nombre y contraseña del Wifi
+void setWifi(String newSsid, String newPpassword){
+  ssid = newSsid;
+  password = newPpassword;
+  setMemoryData();
+  WiFi.mode(WIFI_OFF);  
+  startWifiAp();
+
+}
+
+/// Configurar dispositivo cuando esta en modo configuración
+// TODO(lesanpi): Falta ssid y password del wifi con internet.
+void configureDevice(
+  String name,
+  String ssid, 
+  String password
+  ){
+  
+  configurationMode = false;
+  digitalWrite(CONFIGURATION_MODE_OUTPUT, LOW);
+  configurationModeLightOn = false;
+  changeName(name);
+  setWifi(ssid, password);
+
+
 }

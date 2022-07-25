@@ -86,11 +86,12 @@ void setState(){
 /// Initialize or update the JSON Info of the MQTT Connection (Standalone)
 void setInformation(){
   information["id"] = id;
+  information["name"] = name;
   information["ssid"] = ssid;
   information["standalone"] = standalone;
   information["configurationMode"] = configurationMode;
 }
-
+a
 /// Obtener los datos en memoria
 void getMemoryData(){
   DynamicJsonDocument doc(1024);
@@ -278,7 +279,7 @@ void publishError(String errorMessage){
 ///
 
 /// Conexión al Wifi como cliente
-void startWiFiClient()
+bool startWiFiClient()
 {
   // Serial.println(ssidCoordinator);
   /// Desconexion por si acaso hubo una conexion previa
@@ -306,9 +307,9 @@ void startWiFiClient()
     tries = tries + 1;
     /// 
     if (tries > 30){
-      startWiFiAP();
+      
       standalone = true;
-      return;
+      return false;
     } 
     /// Reintentar conexion.
     // WiFi.begin(ssidCoordinator, passwordCoordinator);
@@ -322,6 +323,7 @@ void startWiFiClient()
   Serial.println("Conectarse al Servidor MQTT");
   localClient.setMqttServer("192.168.0.1", "MQTTUsername", "MQTTPassword", 1883);
   localClient.setOnConnectionEstablishedCallback(onConnectionEstablished); 
+  return true;
 }
 
 /// Creación del punto de acceso (WiFI)
@@ -361,8 +363,10 @@ void setupWifi(){
   /// Coordinator Mode, conectarse al wifi del coordinador y conectarse al servidor MQTT del coordinador.
   else{
     Serial.println("Conectarse al Wifi del Coordinador y al servidor MQTT");
-    startWiFiClient();
-    
+    bool connected = startWiFiClient();
+    if(!connected){
+      startWiFiAP();
+    }
   }
 }
 
@@ -619,6 +623,8 @@ void configureDevice(
   ){
   
   configurationMode = false;
+  digitalWrite(CONFIGURATION_MODE_OUTPUT, LOW);
+  configurationModeLightOn = false;
   changeName(name);
   setMaxTemperature(maxTemperature);
   setMinTemperature(minTemperature);
