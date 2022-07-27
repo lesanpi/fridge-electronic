@@ -116,6 +116,10 @@ public:
 
     virtual bool onAuth(String username, String password, String client_id) {
       Serial.println("Username/Password/ClientId: "+username+"/"+password+"/"+client_id);
+      // TODO: Verificar que el token es legitimo
+
+      // TODO: Verificar que el dueño sea el mismo que se configuro en 
+      // el modo configuracion, si es que no estan en modo configuracion
       notifyInformation = true;
       return true;
     }
