@@ -5,12 +5,12 @@
 #include "StreamUtils.h"
 #include <SoftwareSerial.h>
 #include "DHT.h"
+#include "EspMQTTClient.h"
 
 #define CONFIGURATION_MODE_OUTPUT D5 
 #define LIGHT D2
 #define DHTTYPE DHT11   // DHT 11
 #define COMPRESOR D1
-#include "EspMQTTClient.h"
 
 
 char path[] = "/";
@@ -18,7 +18,6 @@ char host[] = "192.168.0.1";
 
 /// State of the Fridge
 String id = "nevera-07-test";
-String error = "";
 String name = "nevera-07-test";
 bool light = false; // Salida luz
 bool compressor = false; // Salida compressor
@@ -33,6 +32,7 @@ const size_t capacity = 1024;
 DynamicJsonDocument state(capacity); // State, sensors, outputs...
 DynamicJsonDocument information(capacity); // Information, name, id, ssid...
 DynamicJsonDocument memoryJson(capacity); // State, sensors, outputs...
+DynamicJsonDocument error(capacity); // State, sensors, outputs...
 
 /// WIFI Connection
 
@@ -306,55 +306,27 @@ void publishError (){
 
 /// WIFI ///
 
-void startWiFiClient()
-{
-  Serial.println("Connecting to "+(String)ssid);
-  WiFi.mode(WIFI_STA);
-  WiFi.begin(ssid, password);
-  int tries = 0;
-  while (WiFi.status() != WL_CONNECTED) {
-    delay(500);
-    Serial.print(".");
-    tries = tries + 1;
-    if (tries > 60){
-      startWiFiAP();
-      standalone = true;
-      return;
-    }
-  }
+// void startWiFiClient()
+// {
+//   Serial.println("Connecting to "+(String)ssid);
+//   WiFi.mode(WIFI_STA);
+//   WiFi.begin(ssid, password);
+//   int tries = 0;
+//   while (WiFi.status() != WL_CONNECTED) {
+//     delay(500);
+//     Serial.print(".");
+//     tries = tries + 1;
+//     if (tries > 60){
+//       startWiFiAP();
+//       standalone = true;
+//       return;
+//     }
+//   }
   
-  Serial.println("");
-  Serial.println("WiFi connected");
-  Serial.println("IP address: " + WiFi.localIP().toString());
-}
-
-void startWiFiAP()
-{
-  WiFi.mode(WIFI_AP);
-  WiFi.softAP(ssid, password);
-  
-  Serial.println("AP started");
-  Serial.println("IP address: " + WiFi.softAPIP().toString());
-}
-
-void setupWifi(){
-  /// Standalone Mode
-  if (standalone){
-    // We start by connecting to a WiFi network or create the AP
-    startWiFiAP();
-    // Start the broker
-    Serial.println("Starting MQTT Broker");
-    myBroker.init();
-    myBroker.subscribe("state/" + id);
-    myBroker.subscribe("action/" + id);
-    myBroker.subscribe("error/" + id);
-  }
-  /// Coordinator Mode
-  else{
-    startWiFiClient();
-    /// TODO: connect to local MQTT Broker and subscribe to topics
-  }
-}
+//   Serial.println("");
+//   Serial.println("WiFi connected");
+//   Serial.println("IP address: " + WiFi.localIP().toString());
+// }
 
     
 
@@ -490,6 +462,7 @@ void setup() {
 
   /// Configuration mode light output
   pinMode(CONFIGURATION_MODE_OUTPUT, OUTPUT);
+  pinMode(LIGHT, OUTPUT);
   
   delay(5000);
   getMemoryData();
@@ -517,23 +490,23 @@ void setup() {
 
 void loop() {
   
-  sensorTemperature(); //Se obtienen los datos de la temperatura
-  if (Temperature > maxTemperature){
+  readTemperature(); //Se obtienen los datos de la temperatura
+  if (temperature > maxTemperature){
     digitalWrite(COMPRESOR, HIGH); //Prender compresor
-  }else if (Temperature < minTemperature){
+  }else if (temperature < minTemperature){
     digitalWrite(COMPRESOR, LOW); //Apagar compresor
+
   }
   
   // Mantener activo el cliente MQTT (Modo Independietne)
   localClient.loop();
   // Leer temperature
-  readTemperature();
 
   if (!configurationMode) {
 
     // Publish info
     if (notifyInformation){
-      delay(500);
+      delay(1000);
       setInformation();
       publishInformation();
 
@@ -649,17 +622,6 @@ void onAction(JsonObject json){
 
 }
 
-/// Read temperature
-void sensorTemperature(){ //Leera desde D8
-  float TemperatureRead = dht.readTemperature(); // Gets the values of the temperature
-  if(action.equals("setCoordinatorMode")){
-    Serial.println("Cambiar a modo coordinado");
-    String _newSsidCoordinator = json["ssid"];
-    String _newPasswordCoordinator = json["password"];
-    setCoordinatorMode(_newSsidCoordinator, _newPasswordCoordinator);
-  }
-
-}
 
 ///
 /// FUNCIONES PARA ACCIONES ///
@@ -672,6 +634,8 @@ void readTemperature(){
     temperature = temperatureRead;
     notifyState = true;
   }
+  notifyState = true;
+
 }
 
 //void sensorHumidity(){ //OBTENER LA HUMEDAD
@@ -687,15 +651,14 @@ void readTemperature(){
 /// Turn on/off the light
 void toggleLight(){
   light = !light;
-  /// TODO: turn on the light using digital output.
 
   if(light){
-  digitalWrite(LIGHT, HIGH); // envia señal alta al relay
-  Serial.println("Enciende la luz");
+    digitalWrite(LIGHT, HIGH); // envia señal alta al relay
+    Serial.println("Enciende la luz");
   }
   else{
-  digitalWrite(LIGHT, LOW); // envia señal alta al relay
-  Serial.println("Apaga la luz");
+    digitalWrite(LIGHT, LOW); // envia señal alta al relay
+    Serial.println("Apaga la luz");
   }
   
   notifyState = true;
@@ -737,13 +700,6 @@ void changeName(String newName){
   setMemoryData();
 }
 
-/// Encender o apagar la luz
-void toggleLight(){
-  light = !light;
-  // TODO(calg): encender luz usando digitalWrite()
-  notifyState = true;
-}
-
 // /// Cambiar el parametro de temperatura máxima.
 // void setMaxTemperature(int newMaxTemperature){
 //   maxTemperature = newMaxTemperature;
@@ -759,7 +715,7 @@ void toggleLight(){
 // }
 
 void sendError(String newError){
-  error = newError;
+  // error = newError;
   notifyError = true;
 }
 
