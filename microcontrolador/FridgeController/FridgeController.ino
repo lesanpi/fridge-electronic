@@ -4,9 +4,14 @@
 #include "uMQTTBroker.h"
 #include "StreamUtils.h"
 #include <SoftwareSerial.h>
+#include "DHT.h"
 #include "EspMQTTClient.h"
 
 #define CONFIGURATION_MODE_OUTPUT D5 
+#define LIGHT D2
+#define DHTTYPE DHT11   // DHT 11
+#define COMPRESOR D1
+
 
 char path[] = "/";
 char host[] = "192.168.0.1";
@@ -18,7 +23,8 @@ bool light = false; // Salida luz
 bool compressor = false; // Salida compressor
 bool door = false; // Sensor puerta abierta/cerrada
 bool standalone = true;   // Quieres la nevera en modo independiente?
-int temperature = 0; // Sensor temperature
+float temperature = 0; // Sensor temperature
+float humidity = 70; // Sensor humidity
 int maxTemperature = 20; // Parametro temperatura minima permitida.
 int minTemperature = -10; // Parametro temperatura maxima permitida.
 // State JSON
@@ -26,9 +32,12 @@ const size_t capacity = 1024;
 DynamicJsonDocument state(capacity); // State, sensors, outputs...
 DynamicJsonDocument information(capacity); // Information, name, id, ssid...
 DynamicJsonDocument memoryJson(capacity); // State, sensors, outputs...
+DynamicJsonDocument error(capacity); // State, sensors, outputs...
 
 /// WIFI Connection
 
+
+/// TODO: Guardar informacion en memoria, para persistir datos.
 // My Wifi (Standalone)
 String ssid     = id; // Nombre del wifi en modo standalone
 String password = "12345678"; // Clave del wifi en modo standalone
@@ -38,11 +47,20 @@ String passwordCoordinator = "12345678"; // Clave del Wifi del coordinador
 // Notify information: Publish when a new user is connected
 bool notifyInformation = false;
 bool notifyState = false;
+bool notifyError = false;
 
 /// Configuration mode
 bool configurationMode = true;
 bool configurationModeLightOn = false;
 String configurationInfoStr = "";
+
+/// DHT1
+uint8_t DHTPin = D8; 
+
+// Initialize DHT sensor.
+DHT dht(DHTPin, DHTTYPE);                
+
+/// JSON ///
 
 // Convert to json
 JsonObject toJson(String str){
@@ -91,8 +109,12 @@ void setInformation(){
   information["standalone"] = standalone;
   information["configurationMode"] = configurationMode;
 }
-a
-/// Obtener los datos en memoria
+
+void setError(){
+  error["id"] = id;
+  error["error"] = error;
+}
+
 void getMemoryData(){
   DynamicJsonDocument doc(1024);
   JsonObject json;
@@ -121,6 +143,9 @@ void getMemoryData(){
     minTemperature = json["minTemperature"];
     maxTemperature = json["maxTemperature"];
     ssid = String(json["ssid"]);
+    ssidCoordinator = String(json["ssidCoordinator"]);
+    password = String(json["password"]);
+    passwordCoordinator = String(json["passwordCoordinator"]);
     name = String(json["name"]);
     String ssidCoordinatorMemory = String(json["ssidCoordinator"]);
     password = String(json["password"]);
@@ -263,16 +288,47 @@ void publishInformation (){
     myBroker.publish("information", informationEncoded);
   }else{
     // TODO: Publish on Coordinator Mode
-    
+
   }
 }
 
-/// Publicar errores
-void publishError(String errorMessage){
-  /// topic 'error/id'
+void publishError (){
+  String errorEncoded = jsonToString(error);
+  if(standalone){
+    // Publish on Standalone Mode
+    Serial.println(errorEncoded);
+    myBroker.publish("error", errorEncoded);
+  }else{
+    // TODO: Publish on Coordinator Mode
 
-
+  }
 }
+
+/// WIFI ///
+
+// void startWiFiClient()
+// {
+//   Serial.println("Connecting to "+(String)ssid);
+//   WiFi.mode(WIFI_STA);
+//   WiFi.begin(ssid, password);
+//   int tries = 0;
+//   while (WiFi.status() != WL_CONNECTED) {
+//     delay(500);
+//     Serial.print(".");
+//     tries = tries + 1;
+//     if (tries > 60){
+//       startWiFiAP();
+//       standalone = true;
+//       return;
+//     }
+//   }
+  
+//   Serial.println("");
+//   Serial.println("WiFi connected");
+//   Serial.println("IP address: " + WiFi.localIP().toString());
+// }
+
+    
 
 ///
 /// WIFI ///
@@ -406,6 +462,7 @@ void setup() {
 
   /// Configuration mode light output
   pinMode(CONFIGURATION_MODE_OUTPUT, OUTPUT);
+  pinMode(LIGHT, OUTPUT);
   
   delay(5000);
   getMemoryData();
@@ -422,22 +479,34 @@ void setup() {
 
   }
 
+  //Se apaga la luz en primer lugar
+  digitalWrite(LIGHT, LOW); 
+  Serial.println("Luz inicia apagada");
+
+  
   delay(1000);
 }
 
 
 void loop() {
   
+  readTemperature(); //Se obtienen los datos de la temperatura
+  if (temperature > maxTemperature){
+    digitalWrite(COMPRESOR, HIGH); //Prender compresor
+  }else if (temperature < minTemperature){
+    digitalWrite(COMPRESOR, LOW); //Apagar compresor
+
+  }
+  
   // Mantener activo el cliente MQTT (Modo Independietne)
   localClient.loop();
   // Leer temperature
-  readTemperature();
 
   if (!configurationMode) {
 
     // Publish info
     if (notifyInformation){
-      delay(500);
+      delay(1000);
       setInformation();
       publishInformation();
 
@@ -451,6 +520,13 @@ void loop() {
       notifyState = false;
     }
 
+    if (notifyError){
+      Serial.println("Notificando error");
+      setError();
+      publishError();
+
+      notifyError = false;
+    }
     if (!standalone){
       localClient.loop();
     }
@@ -469,6 +545,7 @@ void loop() {
 
     // Publish info
     if (notifyInformation){
+      Serial.println("Notificando informacion");
       delay(500);
       setInformation();
       publishInformation();
@@ -476,6 +553,13 @@ void loop() {
       notifyInformation = false;
     }
 
+   if (notifyError){
+      Serial.println("Notificando error");
+      setError();
+      publishError();
+
+      notifyError = false;
+    }
   }
 
 
@@ -536,14 +620,8 @@ void onAction(JsonObject json){
     setStandaloneMode(_newSsid);
   }
 
-  if(action.equals("setCoordinatorMode")){
-    Serial.println("Cambiar a modo coordinado");
-    String _newSsidCoordinator = json["ssid"];
-    String _newPasswordCoordinator = json["password"];
-    setCoordinatorMode(_newSsidCoordinator, _newPasswordCoordinator);
-  }
-
 }
+
 
 ///
 /// FUNCIONES PARA ACCIONES ///
@@ -551,11 +629,67 @@ void onAction(JsonObject json){
 
 /// Lectura de temperatura a través del sensor.
 void readTemperature(){
-  int temperatureRead = random(0, 2);
+  int temperatureRead = dht.readTemperature();
   if (temperatureRead != temperature){
     temperature = temperatureRead;
     notifyState = true;
   }
+  notifyState = true;
+
+}
+
+//void sensorHumidity(){ //OBTENER LA HUMEDAD
+//float humidityRead = dht.readHumidity(); // Gets the values of the humidity 
+// if (humidityRead != humidity){
+//    humidity = humidityRead;
+//    notifyState = true;
+//  Serial.println("Humedad: " );
+//  Serial.println(humidity);
+// }
+//}
+
+/// Turn on/off the light
+void toggleLight(){
+  light = !light;
+
+  if(light){
+    digitalWrite(LIGHT, HIGH); // envia señal alta al relay
+    Serial.println("Enciende la luz");
+  }
+  else{
+    digitalWrite(LIGHT, LOW); // envia señal alta al relay
+    Serial.println("Apaga la luz");
+  }
+  
+  notifyState = true;
+}
+
+/// Set max temperature
+void setMaxTemperature(float newMaxTemperature){
+
+  if(newMaxTemperature > -22 || newMaxTemperature < 17){ //Grados Centigrados
+    maxTemperature = newMaxTemperature;
+  notifyState = true;
+  setMemoryData();
+  
+  }else{
+    sendError("Limite de temperatura maxima inválida");
+  }
+  
+}
+
+/// Set min temperature
+void setMinTemperature(int newMinTemperature){
+  if(newMinTemperature > -22 || newMinTemperature < 17){ //Grados Centigrados
+    
+    minTemperature = newMinTemperature;
+    notifyState = true;
+    setMemoryData();
+  
+  }else{
+    sendError("Limite de temperatura minima inválida");
+  }
+  
 
 }
 
@@ -566,27 +700,27 @@ void changeName(String newName){
   setMemoryData();
 }
 
-/// Encender o apagar la luz
-void toggleLight(){
-  light = !light;
-  // TODO(calg): encender luz usando digitalWrite()
-  notifyState = true;
+// /// Cambiar el parametro de temperatura máxima.
+// void setMaxTemperature(int newMaxTemperature){
+//   maxTemperature = newMaxTemperature;
+//   notifyState = true;
+//   setMemoryData();
+// }
+
+// /// Cambiar el parametro de temperatura mínima.
+// void setMinTemperature(int newMinTemperature){
+//   minTemperature = newMinTemperature;
+//   notifyState = true;
+//   setMemoryData();
+// }
+
+void sendError(String newError){
+  // error = newError;
+  notifyError = true;
 }
 
-/// Cambiar el parametro de temperatura máxima.
-void setMaxTemperature(int newMaxTemperature){
-  maxTemperature = newMaxTemperature;
-  notifyState = true;
-  setMemoryData();
-}
 
-/// Cambiar el parametro de temperatura mínima.
-void setMinTemperature(int newMinTemperature){
-  minTemperature = newMinTemperature;
-  notifyState = true;
-  setMemoryData();
-}
-
+/// Set standalone mode.
 /// Cambiar a modo independiente, nombre del wifi y contraseña.
 // TODO(lesanpi): que reciba tambien la contraseña
 void setStandaloneMode(String newSsid){
