@@ -6,12 +6,18 @@
 #include <SoftwareSerial.h>
 #include "DHT.h"
 #include "EspMQTTClient.h"
+#include <ArduinoJWT.h>
+#include <PubSubClient.h>
 
 #define CONFIGURATION_MODE_OUTPUT D5 
 #define LIGHT D2
 #define DHTTYPE DHT11   // DHT 11
 #define COMPRESOR D1
+#define KEY "secretphrase"
 
+String msg = "{id}";
+ArduinoJWT jwt = ArduinoJWT(KEY);
+String token = jwt.encodeJWT(msg);
 
 char path[] = "/";
 char host[] = "192.168.0.1";
@@ -27,6 +33,8 @@ float temperature = 0; // Sensor temperature
 float humidity = 70; // Sensor humidity
 int maxTemperature = 20; // Parametro temperatura minima permitida.
 int minTemperature = -10; // Parametro temperatura maxima permitida.
+
+
 // State JSON
 const size_t capacity = 1024; 
 DynamicJsonDocument state(capacity); // State, sensors, outputs...
@@ -44,6 +52,9 @@ String password = "12345678"; // Clave del wifi en modo standalone
 // Coordinator Wifi  
 String ssidCoordinator     = ""; // Wifi al que se debe conectar (coordinador)
 String passwordCoordinator = "12345678"; // Clave del Wifi del coordinador
+// Internet Wifi
+String ssidInternet = "Sanchez Fuentes 2";
+String passwordInternet = "09305573";
 // Notify information: Publish when a new user is connected
 bool notifyInformation = false;
 bool notifyState = false;
@@ -93,7 +104,7 @@ void setState(){
   state["standalone"] = standalone;
   state["ssid"] = ssid;
   state["ssidCoordinator"] = ssidCoordinator;
-
+  state["isConnectedToWifi"] = WiFi.status() == WL_CONNECTED;
 
   // SSID Coordinator just if standalone is false;
   // if (!standalone){
@@ -266,6 +277,13 @@ EspMQTTClient localClient(
   "id"
 );
 
+EspMQTTClient cloudClient(
+  "b18bfec2abdc420f99565f02ebd1fa05.s2.eu.hivemq.cloud",
+  8883,
+  "testUser", 
+  "testUser",
+  "id"
+);
 /// Publish state. Used to initilize the topic and when the state changes
 /// publish the state in the correct topic according if the fridge is working on standole mode or not.
 void publishState(){
@@ -273,9 +291,11 @@ void publishState(){
   if(standalone){
     /// Publish on Standalone Mode
     myBroker.publish("state/" + id, stateEncoded);
+    // TODO: Publicate to owner id
+    cloudClient.publish("state/" + id, stateEncoded);
   }else{
-    /// TODO: Publish on Coordinator Mode
     localClient.publish("state/" + id, stateEncoded);
+    
   }
 }
 
@@ -306,27 +326,44 @@ void publishError (){
 
 /// WIFI ///
 
-// void startWiFiClient()
-// {
-//   Serial.println("Connecting to "+(String)ssid);
-//   WiFi.mode(WIFI_STA);
-//   WiFi.begin(ssid, password);
-//   int tries = 0;
-//   while (WiFi.status() != WL_CONNECTED) {
-//     delay(500);
-//     Serial.print(".");
-//     tries = tries + 1;
-//     if (tries > 60){
-//       startWiFiAP();
-//       standalone = true;
-//       return;
-//     }
-//   }
-  
-//   Serial.println("");
-//   Serial.println("WiFi connected");
-//   Serial.println("IP address: " + WiFi.localIP().toString());
-// }
+void startInternetClient()
+{
+  /// Conectarse al Wifi con Internet
+  Serial.print("Conectarse al Wifi con Internet ");
+  Serial.println(ssidInternet);
+  if (ssidInternet != ""){
+    // Configures static IP address
+    // Set your Static IP address
+    IPAddress local_IP(192, 168, 1, 200);
+    // Set your Gateway IP address
+    IPAddress gateway(192, 168, 1, 1);
+    IPAddress subnet(255, 255, 0, 0);
+    IPAddress primaryDNS(8, 8, 8, 8);   //optional
+    IPAddress secondaryDNS(8, 8, 4, 4); //optional
+    if (!WiFi.config(local_IP, gateway, subnet, primaryDNS, secondaryDNS)) {
+      Serial.println("STA Failed to configure");
+    }
+    WiFi.begin(ssidInternet, passwordInternet);
+    int tries = 0;
+    while (WiFi.status() != WL_CONNECTED && tries < 60)
+    {
+      tries = tries + 1;
+      delay(100);
+      Serial.print(".");
+    }
+
+    if (WiFi.status() == WL_CONNECTED){
+      Serial.println("WiFi connected.");
+      Serial.println("IP address: ");
+      Serial.println(WiFi.localIP());
+
+      cloudClient.setMqttServer("b18bfec2abdc420f99565f02ebd1fa05.s2.eu.hivemq.cloud", "testUser", "testUser", 8883);
+      cloudClient.setOnConnectionEstablishedCallback(onCloudConnectionEstablished); 
+    }
+
+
+  }
+}
 
     
 
@@ -341,7 +378,7 @@ bool startWiFiClient()
   /// Desconexion por si acaso hubo una conexion previa
   WiFi.disconnect();
   /// Modo estacion, por si hubo un modo diferente previamente.
-  WiFi.mode(WIFI_STA);
+  // WiFi.mode(WIFI_STA);
   
   /// Conexion al coordinador
   // WiFi.begin("coordinador-07-test", "12345678");
@@ -370,8 +407,8 @@ bool startWiFiClient()
     /// Reintentar conexion.
     // WiFi.begin(ssidCoordinator, passwordCoordinator);
   }
-  Serial.println();
 
+  Serial.println();
   Serial.print("WiFi connected ");
   Serial.println("IP address: " + WiFi.localIP().toString());
 
@@ -386,7 +423,6 @@ bool startWiFiClient()
 void startWiFiAP()
 {
   /// Modo Punto de Acceso.
-  WiFi.mode(WIFI_AP);
   IPAddress apIP(192, 168, 0, 1);   //Static IP for wifi gateway
   /// Inicializo Gateway, Ip y Mask
   WiFi.softAPConfig(apIP, apIP, IPAddress(255, 255, 255, 0)); //set Static IP gateway on NodeMCU
@@ -409,15 +445,20 @@ void startWiFiAP()
 /// Configurar el WIFI y MQTT
 void setupWifi(){
 
+  WiFi.mode(WIFI_AP_STA);
   /// Standalone Mode, configurar punto de acceso (WiFI) y el servidor MQTT
   /// para el modo independiente
   if (standalone){
+    startInternetClient();
+    
     // We start by connecting to a WiFi network or create the AP
     Serial.println("Creando Wifi Independiente y Servidor MQTT");
     startWiFiAP();
   }
   /// Coordinator Mode, conectarse al wifi del coordinador y conectarse al servidor MQTT del coordinador.
   else{
+    
+
     Serial.println("Conectarse al Wifi del Coordinador y al servidor MQTT");
     bool connected = startWiFiClient();
     if(!connected){
@@ -451,6 +492,34 @@ void onConnectionEstablished(){
   });
 }
 
+/// Funcion llamada una vez que el cliente MQTT en la nube establece la conexión.
+/// funciona para el modo independiente solamente
+void onCloudConnectionEstablished(){
+  cloudClient.subscribe("state/" + id, [](const String & payload) {
+    Serial.print("Cloud data: ")
+    Serial.println(payload);
+
+  });
+
+  cloudClient.subscribe("action/" + id, [](const String & payload) {
+    Serial.print("Cloud data: ")
+    Serial.println(payload);
+
+    // Convert to JSON.
+    DynamicJsonDocument docInput(1024); 
+    JsonObject json;
+    deserializeJson(docInput, (String)payload);
+    json = docInput.as<JsonObject>();
+    // Ejecutar las acciones
+    onAction(json);
+    // Guardar el estado
+    setState();
+    publishState();
+
+  });
+}
+
+
 
 void setup() {
   /// Memory
@@ -483,6 +552,7 @@ void setup() {
   digitalWrite(LIGHT, LOW); 
   Serial.println("Luz inicia apagada");
 
+  Serial.println(token);
   
   delay(1000);
 }
@@ -500,6 +570,7 @@ void loop() {
   
   // Mantener activo el cliente MQTT (Modo Independietne)
   localClient.loop();
+  cloudClient.loop();
   // Leer temperature
 
   if (!configurationMode) {
