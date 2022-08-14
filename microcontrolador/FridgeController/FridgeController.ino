@@ -280,7 +280,6 @@ public:
 WiFiClientSecure espClient;  
 /// Cliente MQTT en la nube
 PubSubClient cloudClient(espClient);
-
 /// MQTT Servidor para Modo Independiente
 FridgeMQTTBroker myBroker;
 /// MQTT Cliente para Mode Coordinado
@@ -295,6 +294,7 @@ EspMQTTClient localClient(
 
 //===================================== funciones en MQTT
 //=====================================
+
 /// Publish state. Used to initilize the topic and when the state changes
 /// publish the state in the correct topic according if the fridge is working on standole mode or not.
 void publishState(){
@@ -307,7 +307,12 @@ void publishState(){
     /// Publish on Standalone Mode
     myBroker.publish("state/" + id, stateEncoded);
     if (cloudClient.connected()){
-      cloudClient.publish(String("state/123123").c_str(), stateEncoded2.c_str(), true);
+      if (cloudClient.publish((("state/"+id)).c_str(), stateEncoded2.c_str(), true)){
+        Serial.print("[INTERNET] Estado publicado en: ");
+        Serial.println(String(("state/"+id)).c_str());
+
+      }
+      // cloudClient.publish(String("state/62f90f52d8f2c401b58817e3").c_str(), stateEncoded2.c_str(), true);
     }
 
   }else{
@@ -582,6 +587,7 @@ void setup() {
   setupWifi();
   setInformation();
   publishInformation();
+  cloudClient.setBufferSize(512);
 
   //Se apaga la luz en primer lugar
   digitalWrite(LIGHT, LOW); 
@@ -609,9 +615,11 @@ void loop() {
     if (temperature > maxTemperature){
       digitalWrite(COMPRESOR, HIGH); //Prender compresor
       compressor = true;
+      notifyState = true;
     }else if (temperature < minTemperature){
       digitalWrite(COMPRESOR, LOW); //Apagar compresor
       compressor = false;
+      notifyState = true;
 
     }
     // Publish info
