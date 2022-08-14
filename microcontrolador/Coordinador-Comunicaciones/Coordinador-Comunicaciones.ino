@@ -10,6 +10,10 @@
 // #define ledpin D2 //defining the OUTPUT pin for LED
 // #define dataDQ D5 // temperature
 
+ArduinoJWT jwt = ArduinoJWT(key);
+String token = "";
+token = jwt.encodeJWT(token);
+
 // Data
 String id = "coordinador-07-test";
 String name = "";
@@ -259,7 +263,7 @@ void setup() {
 
   setInformation();
   publishInformation();
-
+  Serial.println(token);
 }
 
 void loop() {
