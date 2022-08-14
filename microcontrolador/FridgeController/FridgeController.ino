@@ -630,13 +630,15 @@ void loop() {
       notifyState = false;
     }
 
-    if (notifyError){
-      Serial.println("Notificando error");
-      setError();
-      publishError();
 
-      notifyError = false;
-    }
+    // if (notifyError){
+    //   Serial.println("Notificando error");
+    //   setError();
+    //   publishError();
+
+    //   notifyError = false;
+    // }
+    
     if (!standalone){
       localClient.loop();
     }
@@ -771,7 +773,7 @@ void toggleLight(){
 /// Set max temperature
 void setMaxTemperature(float newMaxTemperature){
 
-  if(newMaxTemperature > -22 || newMaxTemperature < 17){ //Grados Centigrados
+  if((newMaxTemperature > -22 || newMaxTemperature < 17) && newMaxTemperature > minTemperature){ //Grados Centigrados
     maxTemperature = newMaxTemperature;
   notifyState = true;
   setMemoryData();
@@ -784,7 +786,7 @@ void setMaxTemperature(float newMaxTemperature){
 
 /// Set min temperature
 void setMinTemperature(int newMinTemperature){
-  if(newMinTemperature > -22 || newMinTemperature < 17){ //Grados Centigrados
+  if((newMinTemperature > -22 || newMinTemperature < 17) && newMinTemperature < maxTemperature){ //Grados Centigrados
     
     minTemperature = newMinTemperature;
     notifyState = true;
