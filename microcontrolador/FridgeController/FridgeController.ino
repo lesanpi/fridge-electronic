@@ -28,6 +28,7 @@ String token = jwt.encodeJWT(msg);
 //========================================== datos de la nevera
 //==========================================
 String id = "nevera-07-test";
+String userId = "";
 String name = "nevera-07-test";
 bool light = false; // Salida luz
 bool compressor = false; // Salida compressor
@@ -99,6 +100,7 @@ const int mqtt_cloud_port =8883;
 /// Initilize or update the JSON State of the Fridge.
 void setState(){
   state["id"] = id;
+  // state["userId"] = userId;
   state["name"] = name;
   state["temperature"] = temperature;
   state["light"] = light;
@@ -156,6 +158,8 @@ void getMemoryData(){
     
     Serial.println("[MEMORIA] Obteniendo datos en memoria");
     configurationMode = false;
+    id = String(json["id"]);
+    userId = String(json["userId"]);
     minTemperature = json["minTemperature"];
     maxTemperature = json["maxTemperature"];
     ssid = String(json["ssid"]);
@@ -189,6 +193,7 @@ void getMemoryData(){
 /// Guardar los datos en memoria
 void setMemoryData(){
   memoryJson["id"] = id;
+  memoryJson["userId"] = userId;
   memoryJson["name"] = name;
   memoryJson["maxTemperature"] = maxTemperature;
   memoryJson["minTemperature"] = minTemperature;
@@ -302,7 +307,7 @@ void publishState(){
     /// Publish on Standalone Mode
     myBroker.publish("state/" + id, stateEncoded);
     if (cloudClient.connected()){
-      cloudClient.publish(String("state/" + id).c_str(), stateEncoded2.c_str(), true);
+      cloudClient.publish(String("state/123123").c_str(), stateEncoded2.c_str(), true);
     }
 
   }else{
@@ -377,7 +382,7 @@ void startInternetClient()
     IPAddress local_IP(192, 168, 1, 200);
     // Set your Gateway IP address
     IPAddress gateway(192, 168, 1, 1);
-    IPAddress subnet(255, 255, 0, 0);
+    IPAddress subnet(255, 255, 255, 0);
     IPAddress primaryDNS(8, 8, 8, 8);   //optional
     IPAddress secondaryDNS(8, 8, 4, 4); //optional
     if (!WiFi.config(local_IP, gateway, subnet, primaryDNS, secondaryDNS)) {
@@ -590,15 +595,7 @@ void setup() {
 //================================================
 void loop() {
   
-  readTemperature(); //Se obtienen los datos de la temperatura
-  if (temperature > maxTemperature){
-    digitalWrite(COMPRESOR, HIGH); //Prender compresor
-    compressor = true;
-  }else if (temperature < minTemperature){
-    digitalWrite(COMPRESOR, LOW); //Apagar compresor
-    compressor = false;
 
-  }
   
   // Mantener activo el cliente MQTT (Modo Independietne)
   localClient.loop();
@@ -607,7 +604,16 @@ void loop() {
   // Leer temperature
 
   if (!configurationMode) {
+    
+    readTemperature(); //Se obtienen los datos de la temperatura
+    if (temperature > maxTemperature){
+      digitalWrite(COMPRESOR, HIGH); //Prender compresor
+      compressor = true;
+    }else if (temperature < minTemperature){
+      digitalWrite(COMPRESOR, LOW); //Apagar compresor
+      compressor = false;
 
+    }
     // Publish info
     if (notifyInformation){
       delay(500);
@@ -638,12 +644,13 @@ void loop() {
   }
   else {
     
-    Serial.println("Esperando configuración...");
     // readDataFromBluetooth();
     if (!configurationModeLightOn){
-      Serial.println("Encendiendo luces de modo de configuración...");
+      Serial.println("[SETUP] Encendiendo luces de modo de configuración...");
       
       digitalWrite(CONFIGURATION_MODE_OUTPUT, HIGH);
+      Serial.println("[SETUP] Modo de configuración activado");
+
       configurationModeLightOn = true;
     }
 
@@ -693,8 +700,9 @@ void onAction(JsonObject json){
       bool _standalone = json["standalone"];
       String _ssidCoordinator = json["ssidCoordinator"];
       String _passwordCoordinator = json["passwordCoordinator"];
-
-      configureDevice(name, _ssid, _password, _ssidCoordinator, _passwordCoordinator, _standalone, maxTemperature, minTemperature);
+      String _id = json["id"];
+      String _userId = json["userId"];
+      configureDevice(_id, _userId, name, _ssid, _password, _ssidCoordinator, _passwordCoordinator, _standalone, maxTemperature, minTemperature);
     }
     
     return;
@@ -828,6 +836,8 @@ void setCoordinatorMode(String ssid, String password){
 /// Configurar dispositivo cuando esta en modo configuración
 // TODO(lesanpi): Falta ssid y password del wifi con internet.
 void configureDevice(
+  String _id,
+  String _userId,
   String name,
   String ssid, 
   String password, 
@@ -838,6 +848,9 @@ void configureDevice(
   int minTemperature
   ){
   
+  id = _id;
+  userId = _userId;
+  setMemoryData();
   configurationMode = false;
   digitalWrite(CONFIGURATION_MODE_OUTPUT, LOW);
   configurationModeLightOn = false;
