@@ -9,6 +9,7 @@
 #include <ArduinoJWT.h>
 #include <PubSubClient.h>
 #include <WiFiClientSecure.h>
+#include <ESP8266HTTPClient.h>
 
 //========================================== pins
 //==========================================
@@ -17,13 +18,12 @@
 #define DHTTYPE DHT11   // DHT 11
 #define COMPRESOR D1
 #define KEY "secretphrase"
+
+String API_HOST = "https://zona-refri-api.herokuapp.com";
 uint8_t DHTPin = D3; /// DHT1
 
 //========================================== jwt
 //==========================================
-String msg = "{id}";
-ArduinoJWT jwt = ArduinoJWT(KEY);
-String token = jwt.encodeJWT(msg);
 
 //========================================== datos de la nevera
 //==========================================
@@ -133,9 +133,17 @@ void setError(){
 //==========================================
 DHT dht(DHTPin, DHTTYPE);                
 
+//========================================== notifications
+//==========================================
+/// 1000 millisPerSecond * 60 secondPerMinutes * 30 minutes  
+const long interval = 1000 * 60 * 20;  
+unsigned long previousTemperatureNoticationMillis = 0;
+
 //========================================== memoria
 //==========================================
 /// Obtener datos en memoria
+
+
 void getMemoryData(){
   DynamicJsonDocument doc(1024);
   JsonObject json;
@@ -591,7 +599,6 @@ void setup() {
 
   //Se apaga la luz en primer lugar
   digitalWrite(LIGHT, LOW); 
-  Serial.println(token);
   
   dht.begin();
   delay(1000);
@@ -612,14 +619,42 @@ void loop() {
   if (!configurationMode) {
     
     readTemperature(); //Se obtienen los datos de la temperatura
+
+    unsigned long currentMillis = millis();
+    bool canSendTemperatureNotification = currentMillis - previousTemperatureNoticationMillis >= interval;
+    Serial.println("[TIEMPO] Current millis: " + String(currentMillis));
+    Serial.println("[TIEMPO] Ultima notificacion de temperatura en millis: " + String(previousTemperatureNoticationMillis));
+
     if (temperature > maxTemperature){
+
       digitalWrite(COMPRESOR, HIGH); //Prender compresor
       compressor = true;
       notifyState = true;
+
+      Serial.println("[TEMPERATURA] Temperatura máxima alcanzada");
+      if (canSendTemperatureNotification){
+        previousTemperatureNoticationMillis = currentMillis;
+        Serial.println("[NOTIFICACION] Notificando temperatura máxima alcanzada");
+        sendNotification("Se ha alcanzado la temperatura máxima.");
+      }else {
+        Serial.println("[NOTIFICACION] No se puede notificar al usuario aun");
+
+      }
+      
     }else if (temperature < minTemperature){
+      
       digitalWrite(COMPRESOR, LOW); //Apagar compresor
       compressor = false;
       notifyState = true;
+      Serial.println("[TEMPERATURA] Temperatura mínima alcanzada");
+      if (canSendTemperatureNotification){
+        previousTemperatureNoticationMillis = currentMillis;
+        Serial.println("[NOTIFICACION] Notificando temperatura minima alcanzada");
+        sendNotification("Se ha alcanzado la temperatura mínima.");
+      }{
+        Serial.println("[NOTIFICACION] No se puede notificar al usuario aun");
+
+      }
 
     }
     // Publish info
@@ -872,4 +907,34 @@ void configureDevice(
     setCoordinatorMode(coordinatorSsid, coordinatorPassword);
   }
 
+}
+
+/// Notificar al usuario
+void sendNotification(String message)
+{ 
+  DynamicJsonDocument payload(512);
+  payload["id"] = id;
+  payload["user"] = userId;
+  payload["type"] = 0;
+  String tokenEncoded = jsonToString(payload);
+
+  ArduinoJWT jwt = ArduinoJWT(KEY);
+  String token = jwt.encodeJWT(tokenEncoded);
+  Serial.println("[NOTIFICATION] Enviando notificacion al usuario");
+  if (standalone){
+    HTTPClient http;
+    http.begin(espClient, API_HOST + "/api/fridges/alert");
+    http.addHeader("Content-Type", "application/json");
+    http.addHeader("Authorization", "Bearer " + token);
+    
+    String body = "";
+    StaticJsonDocument<300> jsonDoc;
+    jsonDoc["message"] = message;
+    serializeJson(jsonDoc, body);
+    
+    int httpCode = http.POST(body);
+    Serial.println("[NOTIFICACION] Estatus code de la respuesta a la notificacion: " + String(httpCode));
+    // processResponse(httpCode, http);
+  }
+   
 }
