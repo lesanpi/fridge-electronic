@@ -10,6 +10,7 @@
 #include <PubSubClient.h>
 #include <WiFiClientSecure.h>
 #include <ESP8266HTTPClient.h>
+#include <EEPROM.h>
 
 //========================================== pins
 //==========================================
@@ -38,7 +39,10 @@ float temperature = 0; // Sensor temperature
 float humidity = 70; // Sensor humidity
 int maxTemperature = 20; // Parametro temperatura minima permitida.
 int minTemperature = -10; // Parametro temperatura maxima permitida.
-
+int temperaturaDeseada = 4; // Parametro temperatura recibida por el usuario.
+unsigned long tiempoAnterior; //Para almacenar el tiempo en milisegundos.
+int tiempoEspera = 4200000; // 7 minutos de espera de tiempo prudencial para volver a encender el compresor.
+bool compresorFlag = false; //Bandera que indica que el compresor fue encendido.
 
 //========================================== json
 //==========================================
@@ -106,6 +110,7 @@ void setState(){
   state["light"] = light;
   state["compressor"] = compressor;
   state["door"] = door;
+  state["temperatureDeseada"] = temperaturaDeseada;
   state["maxTemperature"] = maxTemperature;
   state["minTemperature"] = minTemperature;
   state["standalone"] = standalone;
@@ -133,9 +138,12 @@ void setError(){
 //==========================================
 DHT dht(DHTPin, DHTTYPE);                
 
+const long updateTempInterval = 1000 * 60 * 1;
+unsigned long previousTemperaturePushMillis = 0;
+
 //========================================== notifications
 //==========================================
-/// 1000 millisPerSecond * 60 secondPerMinutes * 30 minutes  
+/// 1000 millisPerSecond * 60 secondPerMinutes * 20 minutes  
 const long interval = 1000 * 60 * 20;  
 unsigned long previousTemperatureNoticationMillis = 0;
 
@@ -168,6 +176,7 @@ void getMemoryData(){
     configurationMode = false;
     id = String(json["id"]);
     userId = String(json["userId"]);
+    // temperaturaDeseada = json["temperatureDeseada"];
     minTemperature = json["minTemperature"];
     maxTemperature = json["maxTemperature"];
     ssid = String(json["ssid"]);
@@ -203,6 +212,7 @@ void setMemoryData(){
   memoryJson["id"] = id;
   memoryJson["userId"] = userId;
   memoryJson["name"] = name;
+  memoryJson["temperaturaDeseada"] = temperaturaDeseada;
   memoryJson["maxTemperature"] = maxTemperature;
   memoryJson["minTemperature"] = minTemperature;
   memoryJson["standalone"] = standalone;
@@ -316,7 +326,7 @@ void publishState(){
     myBroker.publish("state/" + id, stateEncoded);
     if (cloudClient.connected()){
       if (cloudClient.publish((("state/"+id)).c_str(), stateEncoded2.c_str(), true)){
-        Serial.print("[INTERNET] Estado publicado en: ");
+        // Serial.print("[INTERNET] Estado publicado en: ");
         Serial.println(String(("state/"+id)).c_str());
 
       }
@@ -622,8 +632,8 @@ void loop() {
 
     unsigned long currentMillis = millis();
     bool canSendTemperatureNotification = currentMillis - previousTemperatureNoticationMillis >= interval;
-    Serial.println("[TIEMPO] Current millis: " + String(currentMillis));
-    Serial.println("[TIEMPO] Ultima notificacion de temperatura en millis: " + String(previousTemperatureNoticationMillis));
+    // Serial.println("[TIEMPO] Current millis: " + String(currentMillis));
+    // Serial.println("[TIEMPO] Ultima notificacion de temperatura en millis: " + String(previousTemperatureNoticationMillis));
 
     if (temperature > maxTemperature){
 
@@ -637,7 +647,7 @@ void loop() {
         Serial.println("[NOTIFICACION] Notificando temperatura máxima alcanzada");
         sendNotification("Se ha alcanzado la temperatura máxima.");
       }else {
-        Serial.println("[NOTIFICACION] No se puede notificar al usuario aun");
+        // Serial.println("[NOTIFICACION] No se puede notificar al usuario aun");
 
       }
       
@@ -732,12 +742,14 @@ void loop() {
 /// a traves del propio json
 void onAction(JsonObject json){
   String action = json["action"];
-
+  Serial.println("[ACTION] " + action);
   if (configurationMode){
     
     if (action.equals("configureDevice")){
       Serial.println("Configurando dispositivo");
       String name = json["name"];
+      // int temperatureDeseada = json["temperaturaDeseada"];
+      int temperatureDeseada = 6;
       int maxTemperature = json["maxTemperature"];
       int minTemperature = json["minTemperature"];
       String _ssid = json["ssid"];
@@ -747,11 +759,25 @@ void onAction(JsonObject json){
       String _passwordCoordinator = json["passwordCoordinator"];
       String _id = json["id"];
       String _userId = json["userId"];
-      configureDevice(_id, _userId, name, _ssid, _password, _ssidCoordinator, _passwordCoordinator, _standalone, maxTemperature, minTemperature);
+      
+      configureDevice(_id, _userId, name, _ssid, _password, 
+      _ssidCoordinator, _passwordCoordinator, _standalone, maxTemperature, minTemperature, 6);
+      // TODO:use json["temperatureDeseada"]
     }
     
     return;
   } 
+
+  if(action.equals("setTemperaturaDeseada")){
+    Serial.println("Indicarle a la nevera seleccionada que cambie su temperatura");
+    int temperaturaDeseada = json["temperaturaDeseada"];
+    setTemperature(temperaturaDeseada);
+  }
+
+  if(action.equals("factoryRestore")){
+      Serial.println("Restaurar de fabrica la nevera");
+      factoryRestore();
+    }
 
   if(action.equals("changeName")){
     Serial.println("Cambiar el nombre a la nevera");
@@ -788,11 +814,21 @@ void onAction(JsonObject json){
         
 /// Lectura de temperatura a través del sensor.
 void readTemperature(){
-  int temperatureRead = dht.readTemperature();
+  float temperatureRead = dht.readTemperature();
+
   if (temperatureRead != temperature){
     temperature = int(temperatureRead);
     // temperature = 10;
     notifyState = true;
+  }
+
+  unsigned long currentMillis = millis();
+  bool canPushTemperature = currentMillis - previousTemperaturePushMillis >= updateTempInterval;
+  // Serial.println("[TIEMPO] Ultima publicacion de temperatura en millis: " + String(previousTemperaturePushMillis));
+
+  if (canPushTemperature){
+    previousTemperaturePushMillis = currentMillis;
+    pushTemperature(temperatureRead);
   }
 
 }
@@ -890,7 +926,8 @@ void configureDevice(
   String coordinatorPassword, 
   bool standalone,
   int maxTemperature,
-  int minTemperature
+  int minTemperature,
+  int newTemperatureDeseada
   ){
   
   id = _id;
@@ -902,6 +939,7 @@ void configureDevice(
   changeName(name);
   setMaxTemperature(maxTemperature);
   setMinTemperature(minTemperature);
+  setTemperature(newTemperatureDeseada);
   setStandaloneMode(ssid);
   if (standalone){
     setCoordinatorMode(coordinatorSsid, coordinatorPassword);
@@ -937,4 +975,75 @@ void sendNotification(String message)
     // processResponse(httpCode, http);
   }
    
+}
+
+/// Publicar temperatura
+void pushTemperature(float temp)
+{ 
+  DynamicJsonDocument payload(512);
+  payload["id"] = id;
+  payload["user"] = userId;
+  payload["type"] = 0;
+  String tokenEncoded = jsonToString(payload);
+
+  ArduinoJWT jwt = ArduinoJWT(KEY);
+  String token = jwt.encodeJWT(tokenEncoded);
+  Serial.println("[TEMPERATURA] Publicando temperatura " + String(temp));
+
+  if (standalone){
+    HTTPClient http;
+    http.begin(espClient, API_HOST + "/api/fridges/push");
+    http.addHeader("Content-Type", "application/json");
+    http.addHeader("Authorization", "Bearer " + token);
+    
+    String body = "";
+    StaticJsonDocument<300> jsonDoc;
+    jsonDoc["temp"] = temp;
+    serializeJson(jsonDoc, body);
+    
+    int httpCode = http.POST(body);
+    Serial.println("[TEMPERATURA] Estatus code de la respuesta: " + String(httpCode));
+    String payload = http.getString();
+    Serial.println(payload);
+    // processResponse(httpCode, http);
+  }
+   
+}
+
+/// Reiniciar valores de fabrica
+void factoryRestore(){
+	for (int i = 0; i < EEPROM.length(); i++) { 
+	  EEPROM.write(i, 0); 
+	}
+  Serial.println("Controlador reiniciado de fabrica");
+  Serial.println("Reiniciando...");
+  ESP.restart();
+}
+
+//Control del compresor
+void controlCompresor(){
+  if (temperature > temperaturaDeseada){
+      if((millis() - tiempoAnterior >= tiempoEspera)){
+      digitalWrite(COMPRESOR, HIGH); //Prender compresor
+      compressor = true;
+      notifyState = true;
+      compresorFlag = true;
+      }
+    }else if (temperature < temperaturaDeseada){
+      if(compresorFlag){
+        compresorFlag = false;
+        tiempoAnterior = millis();
+      }
+      digitalWrite(COMPRESOR, LOW); //Apagar compresor
+      compressor = false;
+      notifyState = true;
+    }
+}
+
+/// Set temperatura deseada
+void setTemperature(int newTemperaturaDeseada){
+
+  temperaturaDeseada = newTemperaturaDeseada;
+  notifyState = true;
+  setMemoryData();
 }
