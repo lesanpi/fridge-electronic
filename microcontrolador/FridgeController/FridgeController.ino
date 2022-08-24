@@ -42,7 +42,7 @@ int minTemperature = -10; // Parametro temperatura maxima permitida.
 int temperaturaDeseada = 4; // Parametro temperatura recibida por el usuario.
 
 //Para almacenar el tiempo en milisegundos.
-unsigned long tiempoAnterior = ; 
+unsigned long tiempoAnterior = 0; 
 // 7 minutos de espera de tiempo prudencial para volver a encender el compresor.
 int tiempoEspera = 420000; // 1000 * 60 * 7
 //Bandera que indica que el compresor fue encendido.
