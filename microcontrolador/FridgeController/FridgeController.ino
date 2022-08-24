@@ -19,6 +19,9 @@
 #define DHTTYPE DHT11   // DHT 11
 #define COMPRESOR D1
 #define KEY "secretphrase"
+#define BAJARTEMP D3
+#define SUBIRTEMP D4
+#define FACTORYREST D6
 
 String API_HOST = "https://zona-refri-api.herokuapp.com";
 uint8_t DHTPin = D3; /// DHT1
@@ -41,8 +44,14 @@ int maxTemperature = 20; // Parametro temperatura minima permitida.
 int minTemperature = -10; // Parametro temperatura maxima permitida.
 int temperaturaDeseada = 4; // Parametro temperatura recibida por el usuario.
 unsigned long tiempoAnterior; //Para almacenar el tiempo en milisegundos.
-int tiempoEspera = 4200000; // 7 minutos de espera de tiempo prudencial para volver a encender el compresor.
+int tiempoEspera = 420000; // 7 minutos de espera de tiempo prudencial para volver a encender el compresor.
 bool compresorFlag = false; //Bandera que indica que el compresor fue encendido.
+bool sf = false; //Bandera de boton de subida de temperatura
+bool bf = false; //Bandera de boton de bajada de temperatura
+bool rf = false; //Bandera de boton de restoreFactory
+bool rf2 = false; //Bandera de restoreFactory para aplicar funcion cuando se deje de presionar el boton
+unsigned long tiempoAnteriorTe; //
+unsigned long tiempoAnteriorRf;
 
 //========================================== json
 //==========================================
@@ -635,36 +644,39 @@ void loop() {
     // Serial.println("[TIEMPO] Current millis: " + String(currentMillis));
     // Serial.println("[TIEMPO] Ultima notificacion de temperatura en millis: " + String(previousTemperatureNoticationMillis));
 
-    if (temperature > maxTemperature){
 
-      digitalWrite(COMPRESOR, HIGH); //Prender compresor
-      compressor = true;
-      notifyState = true;
+    controlCompresor();
 
-      Serial.println("[TEMPERATURA] Temperatura máxima alcanzada");
-      if (canSendTemperatureNotification){
-        previousTemperatureNoticationMillis = currentMillis;
-        Serial.println("[NOTIFICACION] Notificando temperatura máxima alcanzada");
-        sendNotification("Se ha alcanzado la temperatura máxima.");
-      }else {
-        // Serial.println("[NOTIFICACION] No se puede notificar al usuario aun");
+    // if (temperature > maxTemperature){
 
-      }
+    //   digitalWrite(COMPRESOR, HIGH); //Prender compresor
+    //   compressor = true;
+    //   notifyState = true;
+
+    //   Serial.println("[TEMPERATURA] Temperatura máxima alcanzada");
+    //   if (canSendTemperatureNotification){
+    //     previousTemperatureNoticationMillis = currentMillis;
+    //     Serial.println("[NOTIFICACION] Notificando temperatura máxima alcanzada");
+    //     sendNotification("Se ha alcanzado la temperatura máxima.");
+    //   }else {
+    //     // Serial.println("[NOTIFICACION] No se puede notificar al usuario aun");
+
+    //   }
       
-    }else if (temperature < minTemperature){
+    // }else if (temperature < minTemperature){
       
-      digitalWrite(COMPRESOR, LOW); //Apagar compresor
-      compressor = false;
-      notifyState = true;
-      Serial.println("[TEMPERATURA] Temperatura mínima alcanzada");
-      if (canSendTemperatureNotification){
-        previousTemperatureNoticationMillis = currentMillis;
-        Serial.println("[NOTIFICACION] Notificando temperatura minima alcanzada");
-        sendNotification("Se ha alcanzado la temperatura mínima.");
-      }{
-        Serial.println("[NOTIFICACION] No se puede notificar al usuario aun");
+    //   digitalWrite(COMPRESOR, LOW); //Apagar compresor
+    //   compressor = false;
+    //   notifyState = true;
+    //   Serial.println("[TEMPERATURA] Temperatura mínima alcanzada");
+    //   if (canSendTemperatureNotification){
+    //     previousTemperatureNoticationMillis = currentMillis;
+    //     Serial.println("[NOTIFICACION] Notificando temperatura minima alcanzada");
+    //     sendNotification("Se ha alcanzado la temperatura mínima.");
+    //   }else {
+    //     Serial.println("[NOTIFICACION] No se puede notificar al usuario aun");
 
-      }
+    //   }
 
     }
     // Publish info
@@ -1046,4 +1058,50 @@ void setTemperature(int newTemperaturaDeseada){
   temperaturaDeseada = newTemperaturaDeseada;
   notifyState = true;
   setMemoryData();
+}
+
+void controlBotones{
+    int temperaturaDeseada2 = temperaturaDeseada;
+
+    if(digitalRead(BAJARTEMP)){
+    if(!bf){
+      temperaturaDeseada2--;
+      bf = true;
+      setTemperature(temperaturaDeseada2);
+    }
+
+  }else{
+    bf = false;
+  }
+
+   if(digitalRead(SUBIRTEMP)){
+    if(!sf){
+      temperaturaDeseada2++;
+      sf = true;
+      setTemperature(temperaturaDeseada2);
+    }
+
+  }else{
+    sf = false;
+  }
+
+  if(digitalRead(FACTORYREST)){
+    if(!rf){
+      tiempoAnteriorRf = millis();
+      rf = true;
+      Serial.println("....................................5 segundos para reinicir el equipo...............................");
+    } 
+    if((millis()-tiempoAnteriorRf) >= 5000){ //Si pasan 5 segundos aplica el if
+      rf2 = true;
+      Serial.println("Equipo se reiniciara de fabrica");
+    }
+  }else{
+    rf = false;
+    if(rf2){
+      rf2 = false;
+      Serial.println("Equipo reiniciado de fabrica");
+      factoryRestore();
+    }
+  }
+
 }
