@@ -1,13 +1,16 @@
+// #include <WebSocketClient.h>
 #include <ArduinoJson.h>
 #include <ESP8266WiFi.h>
 #include "uMQTTBroker.h"
 #include "StreamUtils.h"
+#include <SoftwareSerial.h>
 #include "DHT.h"
 #include "EspMQTTClient.h"
 #include <ArduinoJWT.h>
 #include <PubSubClient.h>
 #include <WiFiClientSecure.h>
 #include <ESP8266HTTPClient.h>
+#include <EEPROM.h>
 
 //========================================== pins
 //==========================================
@@ -37,34 +40,19 @@ float humidity = 70; // Sensor humidity
 int maxTemperature = 20; // Parametro temperatura minima permitida.
 int minTemperature = -10; // Parametro temperatura maxima permitida.
 int temperaturaDeseada = 4; // Parametro temperatura recibida por el usuario.
-
-//Para almacenar el tiempo en milisegundos.
-unsigned long tiempoAnterior = 0; 
-// 7 minutos de espera de tiempo prudencial para volver a encender el compresor.
-int tiempoEspera = 420000; // 1000 * 60 * 7
-//Bandera que indica que el compresor fue encendido.
-bool compresorFlag = false; 
-
+unsigned long tiempoAnterior; //Para almacenar el tiempo en milisegundos.
+int tiempoEspera = 4200000; // 7 minutos de espera de tiempo prudencial para volver a encender el compresor.
+bool compresorFlag = false; //Bandera que indica que el compresor fue encendido.
 
 //========================================== json
 //==========================================
 const size_t capacity = 1024; 
-const size_t state_capacity = 360; 
-DynamicJsonDocument state(state_capacity); // State, sensors, outputs...
-DynamicJsonDocument information(state_capacity); // Information, name, id, ssid...
-DynamicJsonDocument memoryJson(capacity); // State, sensors, outputs...
-DynamicJsonDocument error(128); // State, sensors, outputs...
+DynamicJsonDocument state(256); // State, sensors, outputs...
+// DynamicJsonDocument information(256); // Information, name, id, ssid...
+// DynamicJsonDocument error(256); // State, sensors, outputs...
+DynamicJsonDocument memoryJson(2048); // State, sensors, outputs...
 
-// Convert to json
-JsonObject toJson(String str){
-  // Serial.println(str);
-  DynamicJsonDocument docInput(1024);
-  JsonObject json;
-  deserializeJson(docInput, str);
-  json = docInput.as<JsonObject>();
-  return json;
-}
-
+// String testConf = String("")
 /// Returns the JSON converted to String
 String jsonToString(DynamicJsonDocument json){
   String buf;
@@ -106,27 +94,15 @@ const int mqtt_cloud_port =8883;
 //==========================================
 /// Initilize or update the JSON State of the Fridge.
 void setState(){
-  state["id"] = id;
-  // state["userId"] = userId;
-  state["name"] = name;
-  state["temperature"] = temperature;
-  state["light"] = light;
-  state["compressor"] = compressor;
-  state["door"] = door;
-  state["desiredTemperature"] = temperaturaDeseada;
-  state["maxTemperature"] = maxTemperature;
-  state["minTemperature"] = minTemperature;
-  state["standalone"] = standalone;
-  state["ssid"] = ssid;
-  state["ssidCoordinator"] = ssidCoordinator;
-  state["isConnectedToWifi"] = WiFi.status() == WL_CONNECTED;
-  // Serial.println("[JSON DEBUG][STATE] erflowed: " + String(state.overflowed()));
-  // Serial.println("[JSON DEBUG][STATE] Is memoryUsage: " + String(state.memoryUsage()));
-  // Serial.println("[JSON DEBUG][STATE] Is siIs ovze: " + String(state.size()));
+  
+
 }
 
 /// Initialize or update the JSON Info of the MQTT Connection (Standalone)
 void setInformation(){
+  // ! Remover luego de resolver problema.
+  return;
+  DynamicJsonDocument information(256); // Information, name, id, ssid...
   information["id"] = id;
   information["name"] = name;
   information["ssid"] = ssid;
@@ -134,20 +110,21 @@ void setInformation(){
   information["configurationMode"] = configurationMode;
 }
 
-void setError(){
-  error["id"] = id;
-  error["error"] = error;
-}
+// void setError(){
+//   error["id"] = id;
+//   error["error"] = error;
+// }
 
 //========================================== sensors
 //==========================================
 DHT dht(DHTPin, DHTTYPE);                
+
 const long updateTempInterval = 1000 * 60 * 1;
 unsigned long previousTemperaturePushMillis = 0;
 
 //========================================== notifications
 //==========================================
-/// 1000 millisPerSecond * 60 secondPerMinutes * 30 minutes  
+/// 1000 millisPerSecond * 60 secondPerMinutes * 20 minutes  
 const long interval = 1000 * 60 * 20;  
 unsigned long previousTemperatureNoticationMillis = 0;
 
@@ -157,10 +134,10 @@ unsigned long previousTemperatureNoticationMillis = 0;
 
 
 void getMemoryData(){
-  DynamicJsonDocument doc(1024);
+  DynamicJsonDocument doc(2048);
   JsonObject json;
   // deserializeJson(docInput, str);
-  EepromStream eepromStream(0, 1024);
+  EepromStream eepromStream(0, 2048);
   deserializeJson(doc, eepromStream);
   json = doc.as<JsonObject>();
 
@@ -208,11 +185,17 @@ void getMemoryData(){
     
     standalone = bool(json["standalone"]);
   }
+  Serial.println("[JSON DEBUG][GET MEMORY] Is overflowed: " + String(state.overflowed()));
+  Serial.println("[JSON DEBUG][GET MEMORY] Is memoryUsage: " + String(state.memoryUsage()));
+  Serial.println("[JSON DEBUG][GET MEMORY] Is size: " + String(state.size()));
+  // json.clear();
 
 }
 
 /// Guardar los datos en memoria
 void setMemoryData(){
+
+  Serial.println("[MEMORY] Guardando datos en memoria");
   memoryJson["id"] = id;
   memoryJson["userId"] = userId;
   memoryJson["name"] = name;
@@ -229,6 +212,8 @@ void setMemoryData(){
   EepromStream eepromStream(0, 2048);
   serializeJson(memoryJson, eepromStream);
   EEPROM.commit();
+
+  // memoryJson.clear();
 
 }
 
@@ -262,25 +247,34 @@ public:
       os_memcpy(data_str, data, length);
       data_str[length] = '\0';
       // Serial.println("Topico recibido: '"+topic+"', con los datos: '"+(String)data_str+"'");
-      Serial.println("[LOCAL BROKER]["+String(topic)+"] Mensaje recibido> "+(String)data_str+"'");
+      Serial.println("[LOCAL BROKER]["+String(topic)+"] Mensaje recibido> "+(String)data_str+" ");
 
       // Convert to JSON.
-      DynamicJsonDocument docInput(256); 
+      DynamicJsonDocument docInput(512); 
       JsonObject json;
-      deserializeJson(docInput, (String)data_str);
+      deserializeJson(docInput, String(data_str));
       json = docInput.as<JsonObject>();
+      Serial.println(json);
+      int tries = 0;
+      
+      while (json == 1 && tries < 20){
+        deserializeJson(docInput, String(data_str));
+        json = docInput.as<JsonObject>();
+        tries++;
+      }
 
+      if (json == 1) return;
+      
+      Serial.println(String(data_str));
       if(topic == "action/" + id){
         Serial.println("Action: " + String(json["action"]));
-        if (!json.isNull()){
-          onAction(json);
-
-        }
+        onAction(json);
         // EJECUTAR LAS ACCIONES
-        json.clear();
+        
         
       }
-      
+
+      notifyState = true;
       // setState();
       // publishState();
       
@@ -323,18 +317,34 @@ EspMQTTClient localClient(
 /// Publish state. Used to initilize the topic and when the state changes
 /// publish the state in the correct topic according if the fridge is working on standole mode or not.
 void publishState(){
+  // DynamicJsonDocument state(2048); // State, sensors, outputs...
+  state["id"] = id;
+  // state["userId"] = userId;
+  state["name"] = name;
+  state["temperature"] = temperature;
+  state["light"] = light;
+  state["compressor"] = compressor;
+  state["door"] = door;
+  state["desiredTemperature"] = 15;
+  state["maxTemperature"] = maxTemperature;
+  state["minTemperature"] = minTemperature;
+  state["standalone"] = standalone;
+  state["ssid"] = ssid;
+  state["ssidCoordinator"] = ssidCoordinator;
+  state["isConnectedToWifi"] = WiFi.status() == WL_CONNECTED;
   setState();
   String stateEncoded = jsonToString(state);
-  Serial.println("[PUBLISH] Publicando estado: " + stateEncoded);
-  // setState();
-  // String stateEncoded2 = jsonToString(state);
-
+  setState();
+  String stateEncoded2 = jsonToString(state);
+  
+  Serial.println("[PUBLISH] Publicando estado");
   if(standalone){
     /// Publish on Standalone Mode
-    myBroker.publish("state/" + id, stateEncoded);
+    bool published = myBroker.publish("state/" + id, stateEncoded);
+    Serial.println("[PUBLISH] Publicado en broker local: " + String(published));
     if (cloudClient.connected()){
-      if (cloudClient.publish((("state/"+id)).c_str(), stateEncoded.c_str(), true)){
-        Serial.print("[INTERNET] Estado publicado en: ");
+      if (cloudClient.publish((("state/"+id)).c_str(), stateEncoded2.c_str(), true)){
+        // Serial.print("[INTERNET] Estado publicado en: ");
         Serial.println(String(("state/"+id)).c_str());
 
       }
@@ -345,10 +355,21 @@ void publishState(){
     localClient.publish("state/" + id, stateEncoded);
     
   }
+  Serial.println("[JSON DEBUG][STATE] Is overflowed: " + String(state.overflowed()));
+  Serial.println("[JSON DEBUG][STATE] Is memoryUsage: " + String(state.memoryUsage()));
+  Serial.println("[JSON DEBUG][STATE] Is size: " + String(state.size()));
+  // state.clear();  
+
 }
 
 /// Publicar la información de la comunicación/conexión
 void publishInformation (){
+  DynamicJsonDocument information(256); // Information, name, id, ssid...
+  information["id"] = id;
+  information["name"] = name;
+  information["ssid"] = ssid;
+  information["standalone"] = standalone;
+  information["configurationMode"] = configurationMode;
   String informationEncoded = jsonToString(information);
   if(standalone){
     // Publish on Standalone Mode
@@ -358,19 +379,23 @@ void publishInformation (){
     // TODO: Publish on Coordinator Mode
 
   }
+  Serial.println("[JSON DEBUG][INFORMATION] Is overflowed: " + String(state.overflowed()));
+  Serial.println("[JSON DEBUG][INFORMATION] Is memoryUsage: " + String(state.memoryUsage()));
+  Serial.println("[JSON DEBUG][INFORMATION] Is size: " + String(state.size()));
+  // information.clear();
 }
 
-void publishError (){
-  String errorEncoded = jsonToString(error);
-  if(standalone){
-    // Publish on Standalone Mode
-    Serial.println("Publicando error:" + errorEncoded);
-    myBroker.publish("error", errorEncoded);
-  }else{
-    // TODO: Publish on Coordinator Mode
+// void publishError (){
+//   String errorEncoded = jsonToString(error);
+//   if(standalone){
+//     // Publish on Standalone Mode
+//     Serial.println("Publicando error:" + errorEncoded);
+//     myBroker.publish("error", errorEncoded);
+//   }else{
+//     // TODO: Publish on Coordinator Mode
 
-  }
-}
+//   }
+// }
 
 //===================================== reconnect cloud
 /// Reconnect cloud connection
@@ -387,14 +412,13 @@ void reconnectCloud() {
       // Subscribe to topics
       cloudClient.subscribe(("action/" + id).c_str());
       // cloudClient.subscribe(("state/" + id).c_str());
-      notifyState = true;
 
     } else {
       Serial.print("failed, rc=");
       Serial.print(cloudClient.state());
       Serial.println(" try again in 5 seconds");   // Wait 5 seconds before retrying
       tries += 1;
-      // delay(5000);
+      delay(5000);
       
     }
   }
@@ -497,18 +521,17 @@ bool startWiFiClient()
   while (WiFi.status() != WL_CONNECTED) {
     /// Esperar medio segundo entre intervalo
     // WiFi.begin(ssidCoordinator, passwordCoordinator);
+    delay(500);
 
     /// Reconectarme
     Serial.print(".");
     tries = tries + 1;
     /// 
-    if (tries > 100){
+    if (tries > 30){
       
       standalone = true;
       return false;
     } 
-    delay(500);
-
     /// Reintentar conexion.
     // WiFi.begin(ssidCoordinator, passwordCoordinator);
   }
@@ -587,8 +610,8 @@ void onConnectionEstablished(){
     // Ejecutar las acciones
     onAction(json);
     // Guardar el estado
-    setState();
-    publishState();
+    // setState();
+    // publishState();
 
   });
 }
@@ -597,7 +620,7 @@ void onConnectionEstablished(){
 //================================================
 void setup() {
   /// Memory
-  EEPROM.begin(1024);
+  EEPROM.begin(2048);
   /// Logs
   Serial.begin(115200);
   /// Dht Begin
@@ -609,17 +632,21 @@ void setup() {
   pinMode(LIGHT, OUTPUT);
   pinMode(COMPRESOR, OUTPUT);
   
+  delay(5000);
   getMemoryData();
   /// Setup WiFi
   setupWifi();
   setInformation();
   publishInformation();
-  cloudClient.setBufferSize(512);
+  cloudClient.setBufferSize(2048);
 
-  //Se apaga la luz en primer lugar
+  // Se apaga la luz en primer lugar
   digitalWrite(LIGHT, LOW); 
+  // Se apaga el compresor en primer lugar
+  digitalWrite(COMPRESOR, LOW); 
   
   dht.begin();
+  delay(1000);
 }
 
 //================================================ loop
@@ -629,10 +656,9 @@ void loop() {
 
   
   // Mantener activo el cliente MQTT (Modo Independietne)
-  if (!standalone) localClient.loop();
-
+  localClient.loop();
   if (!cloudClient.connected()) reconnectCloud();
-  if (cloudClient.connected()) cloudClient.loop();
+  cloudClient.loop();
   // Leer temperature
 
   if (!configurationMode) {
@@ -641,12 +667,51 @@ void loop() {
     readTemperature(); 
     // Controlo el compresor
     controlCompresor();
-    /// Deberia enviar push notification ?
-    shouldPushTempNotification();
-    
+
+
+    unsigned long currentMillis = millis();
+    bool canSendTemperatureNotification = currentMillis - previousTemperatureNoticationMillis >= interval;
+    // Serial.println("[TIEMPO] Current millis: " + String(currentMillis));
+    // Serial.println("[TIEMPO] Ultima notificacion de temperatura en millis: " + String(previousTemperatureNoticationMillis));
+
+    if (temperature > maxTemperature){
+
+      digitalWrite(COMPRESOR, HIGH); //Prender compresor
+      compressor = true;
+      notifyState = true;
+
+      Serial.println("[TEMPERATURA] Temperatura máxima alcanzada");
+      if (canSendTemperatureNotification){
+        previousTemperatureNoticationMillis = currentMillis;
+        Serial.println("[NOTIFICACION] Notificando temperatura máxima alcanzada");
+        sendNotification("Se ha alcanzado la temperatura máxima.");
+      }else {
+        // Serial.println("[NOTIFICACION] No se puede notificar al usuario aun");
+
+      }
+      
+    }else if (temperature < minTemperature){
+      
+      digitalWrite(COMPRESOR, LOW); //Apagar compresor
+      compressor = false;
+      notifyState = true;
+      Serial.println("[TEMPERATURA] Temperatura mínima alcanzada");
+      if (canSendTemperatureNotification){
+        previousTemperatureNoticationMillis = currentMillis;
+        Serial.println("[NOTIFICACION] Notificando temperatura minima alcanzada");
+        sendNotification("Se ha alcanzado la temperatura mínima.");
+      }{
+        Serial.println("[NOTIFICACION] No se puede notificar al usuario aun");
+
+      }
+
+    }
     // Publish info
+    // setInformation();
+    // publishInformation();
+
     if (notifyInformation){
-      // delay(500);
+      delay(500);
       setInformation();
       publishInformation();
 
@@ -655,14 +720,10 @@ void loop() {
 
     // Publish state
     if (notifyState){
-      // delay(500);
-      notifyState = false;
       setState();
       publishState();
+      notifyState = false;
     }
-
-    // notifyState = true;
-    // notifyInformation = true;
 
 
     // if (notifyError){
@@ -673,7 +734,9 @@ void loop() {
     //   notifyError = false;
     // }
     
-    
+    if (!standalone){
+      localClient.loop();
+    }
 
   }
   else {
@@ -691,26 +754,25 @@ void loop() {
     // Publish info
     if (notifyInformation){
       Serial.println("Notificando informacion");
-      // delay(500);
+      delay(500);
       setInformation();
       publishInformation();
 
       notifyInformation = false;
     }
 
-   if (notifyError){
-      Serial.println("Notificando error");
-      setError();
-      publishError();
+  //  if (notifyError){
+  //     Serial.println("Notificando error");
+  //     setError();
+  //     publishError();
 
-      notifyError = false;
-    }
+  //     notifyError = false;
+  //   }
   }
 
 
-
   
-  delay(3000);
+  delay(1000);
 
 }
 
@@ -722,12 +784,16 @@ void loop() {
 /// a traves del propio json
 void onAction(JsonObject json){
   String action = json["action"];
+  Serial.println("[ACTION] " + action);
+  if(action == "null") return;
 
   if (configurationMode){
     
     if (action.equals("configureDevice")){
       Serial.println("Configurando dispositivo");
       String name = json["name"];
+      int _temperatureDeseada = json["desiredTemperature"];
+      // int temperatureDeseada = 6;
       int maxTemperature = json["maxTemperature"];
       int minTemperature = json["minTemperature"];
       String _ssid = json["ssid"];
@@ -737,7 +803,10 @@ void onAction(JsonObject json){
       String _passwordCoordinator = json["passwordCoordinator"];
       String _id = json["id"];
       String _userId = json["userId"];
-      configureDevice(_id, _userId, name, _ssid, _password, _ssidCoordinator, _passwordCoordinator, _standalone, maxTemperature, minTemperature);
+      
+      configureDevice(_id, _userId, name, _ssid, _password, 
+      _ssidCoordinator, _passwordCoordinator, _standalone, maxTemperature, minTemperature, _temperatureDeseada);
+      // TODO:use json["temperatureDeseada"]
     }
     
     return;
@@ -790,18 +859,21 @@ void onAction(JsonObject json){
 /// Lectura de temperatura a través del sensor.
 void readTemperature(){
   float temperatureRead = dht.readTemperature();
+
   if (int(temperatureRead) != temperature){
     temperature = int(temperatureRead);
     // temperature = 10;
-    Serial.println("[NOTIFY STATE] Cambio de temperatura");
+    Serial.println("[NOTIFY STATE] True");
     notifyState = true;
   }
 
-  boolean canPushTemperature = millis() - previousTemperaturePushMillis >= updateTempInterval ;
+  unsigned long currentMillis = millis();
+  bool canPushTemperature = currentMillis - previousTemperaturePushMillis >= updateTempInterval;
   // Serial.println("[TIEMPO] Ultima publicacion de temperatura en millis: " + String(previousTemperaturePushMillis));
 
-  if (canPushTemperature || millis() < 10000){
-    previousTemperaturePushMillis = millis();
+  if (canPushTemperature){
+    return;
+    previousTemperaturePushMillis = currentMillis;
     pushTemperature(temperatureRead);
   }
 
@@ -893,28 +965,40 @@ void setCoordinatorMode(String ssid, String password){
 void configureDevice(
   String _id,
   String _userId,
-  String name,
-  String ssid, 
-  String password, 
-  String coordinatorSsid, 
-  String coordinatorPassword, 
-  bool standalone,
-  int maxTemperature,
-  int minTemperature
+  String _name,
+  String _ssid, 
+  String _password, 
+  String _coordinatorSsid, 
+  String _coordinatorPassword, 
+  bool _standalone,
+  int _maxTemperature,
+  int _minTemperature,
+  int newTemperatureDeseada
   ){
   
   id = _id;
   userId = _userId;
-  setMemoryData();
   configurationMode = false;
+  temperaturaDeseada = newTemperatureDeseada;
   digitalWrite(CONFIGURATION_MODE_OUTPUT, LOW);
   configurationModeLightOn = false;
-  changeName(name);
-  setMaxTemperature(maxTemperature);
-  setMinTemperature(minTemperature);
+  name = _name;
+  minTemperature = minTemperature;
+  maxTemperature = maxTemperature;
+  standalone = _standalone;
+  ssid = _ssid;
+  ssidCoordinator = _coordinatorSsid;
+  passwordCoordinator = _coordinatorPassword;
+  setMemoryData();
+  ESP.restart();
+  
+  // changeName(name);
+  // setMaxTemperature(maxTemperature);
+  // setMinTemperature(minTemperature);
+  // setTemperature(newTemperatureDeseada);
   setStandaloneMode(ssid);
   if (standalone){
-    setCoordinatorMode(coordinatorSsid, coordinatorPassword);
+    // setCoordinatorMode(coordinatorSsid, coordinatorPassword);
   }
 
 }
@@ -922,6 +1006,7 @@ void configureDevice(
 /// Notificar al usuario
 void sendNotification(String message)
 { 
+  return;
   DynamicJsonDocument payload(512);
   payload["id"] = id;
   payload["user"] = userId;
@@ -944,10 +1029,12 @@ void sendNotification(String message)
     
     int httpCode = http.POST(body);
     Serial.println("[NOTIFICACION] Estatus code de la respuesta a la notificacion: " + String(httpCode));
-
-    http.end();
     // processResponse(httpCode, http);
+    http.end();
   }
+
+  // payload.clear();
+
    
 }
 
@@ -1002,35 +1089,22 @@ void factoryRestore(){
 //Control del compresor
 void controlCompresor(){
   if (temperature > temperaturaDeseada){
-    if((millis() - tiempoAnterior >= tiempoEspera)){
-      Serial.println("[COMPRESOR] PRENDIENDO EL COMPRESOR");
-      digitalWrite(COMPRESOR, HIGH); //Prender compresor
-      if (!compressor){
+      if((millis() - tiempoAnterior >= tiempoEspera)){
+        digitalWrite(COMPRESOR, HIGH); //Prender compresor
         compressor = true;
         notifyState = true;
-        // ? No se si deberia notificar que se encendio el compresor
-        sendNotification("Se ha encendido el compresor");
-        // ! Si descomento el codigo de arriba me llegan notificaciones seguidas.
-        // ! Deberia llegarme solamente la primera vez que se prende el compresor y ya
-        // ! En caso que se quiera notificar que se prendio el compresor
-
+        compresorFlag = true;
       }
-      compresorFlag = true;
-
     }
-  } 
-
-  if (temperature < temperaturaDeseada){
-    if(compresorFlag){
-      compresorFlag = false;
-      tiempoAnterior = millis();
+    if (temperature < temperaturaDeseada){
+      if(compresorFlag){
+        compresorFlag = false;
+        tiempoAnterior = millis();
+      }
+      digitalWrite(COMPRESOR, LOW); //Apagar compresor
+      compressor = false;
+      notifyState = true;
     }
-    Serial.println("[COMPRESOR] APAGANDO EL COMPRESOR");
-
-    digitalWrite(COMPRESOR, LOW); //Apagar compresor
-    compressor = false;
-    notifyState = true;
-  }
 }
 
 /// Set temperatura deseada
@@ -1040,37 +1114,4 @@ void setTemperature(int newTemperaturaDeseada){
   notifyState = true;
   Serial.println("Temperatura deseada cambiada");
   setMemoryData();
-}
-
-void shouldPushTempNotification(){
-  // unsigned long currentMillis = 0;
-  boolean canSendTemperatureNotification = millis() - previousTemperatureNoticationMillis >= interval;
-  // Serial.println("[TIEMPO] Current millis: " + String(currentMillis));
-  // Serial.println("[TIEMPO] Ultima notificacion de temperatura en millis: " + String(previousTemperatureNoticationMillis));
-
-  if (temperature > maxTemperature){
-
-    if (canSendTemperatureNotification || millis() < 15000){
-      previousTemperatureNoticationMillis = millis();
-      Serial.println("[NOTIFICACION] Notificando temperatura máxima alcanzada");
-      sendNotification("Se ha alcanzado la temperatura máxima.");
-    }else {
-      // Serial.println("[NOTIFICACION] No se puede notificar al usuario aun");
-
-    }
-    
-  }
-  if (temperature < minTemperature){
-    
-    digitalWrite(COMPRESOR, LOW); //Apagar compresor
-    if (canSendTemperatureNotification){
-      previousTemperatureNoticationMillis = millis();
-      Serial.println("[NOTIFICACION] Notificando temperatura minima alcanzada");
-      sendNotification("Se ha alcanzado la temperatura mínima.");
-    }{
-      Serial.println("[NOTIFICACION] No se puede notificar al usuario aun");
-
-    }
-
-  }
 }
