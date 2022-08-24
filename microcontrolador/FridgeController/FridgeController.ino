@@ -16,6 +16,9 @@
 #define DHTTYPE DHT11   // DHT 11
 #define COMPRESOR D1
 #define KEY "secretphrase"
+#define BAJARTEMP D3
+#define SUBIRTEMP D4
+#define FACTORYREST D6
 
 String API_HOST = "https://zona-refri-api.herokuapp.com";
 uint8_t DHTPin = D3; /// DHT1
@@ -39,12 +42,18 @@ int minTemperature = -10; // Parametro temperatura maxima permitida.
 int temperaturaDeseada = 4; // Parametro temperatura recibida por el usuario.
 
 //Para almacenar el tiempo en milisegundos.
-unsigned long tiempoAnterior = 0; 
+unsigned long tiempoAnterior = ; 
 // 7 minutos de espera de tiempo prudencial para volver a encender el compresor.
 int tiempoEspera = 420000; // 1000 * 60 * 7
 //Bandera que indica que el compresor fue encendido.
 bool compresorFlag = false; 
 
+bool sf = false; //Bandera de boton de subida de temperatura
+bool bf = false; //Bandera de boton de bajada de temperatura
+bool rf = false; //Bandera de boton de restoreFactory
+bool rf2 = false; //Bandera de restoreFactory para aplicar funcion cuando se deje de presionar el boton
+unsigned long tiempoAnteriorTe; //
+unsigned long tiempoAnteriorRf;
 
 //========================================== json
 //==========================================
@@ -1040,6 +1049,52 @@ void setTemperature(int newTemperaturaDeseada){
   notifyState = true;
   Serial.println("Temperatura deseada cambiada");
   setMemoryData();
+}
+
+void controlBotones{
+    int temperaturaDeseada2 = temperaturaDeseada;
+
+    if(digitalRead(BAJARTEMP)){
+    if(!bf){
+      temperaturaDeseada2--;
+      bf = true;
+      setTemperature(temperaturaDeseada2);
+    }
+
+  }else{
+    bf = false;
+  }
+
+   if(digitalRead(SUBIRTEMP)){
+    if(!sf){
+      temperaturaDeseada2++;
+      sf = true;
+      setTemperature(temperaturaDeseada2);
+    }
+
+  }else{
+    sf = false;
+  }
+
+  if(digitalRead(FACTORYREST)){
+    if(!rf){
+      tiempoAnteriorRf = millis();
+      rf = true;
+      Serial.println("....................................5 segundos para reinicir el equipo...............................");
+    } 
+    if((millis()-tiempoAnteriorRf) >= 5000){ //Si pasan 5 segundos aplica el if
+      rf2 = true;
+      Serial.println("Equipo se reiniciara de fabrica");
+    }
+  }else{
+    rf = false;
+    if(rf2){
+      rf2 = false;
+      Serial.println("Equipo reiniciado de fabrica");
+      factoryRestore();
+    }
+  }
+
 }
 
 void shouldPushTempNotification(){
