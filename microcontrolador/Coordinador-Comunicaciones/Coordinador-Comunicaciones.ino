@@ -13,8 +13,43 @@
 
 // #define ledpin D2 //defining the OUTPUT pin for LED
 // #define dataDQ D5 // temperature
+static const char *root_ca PROGMEM = R"EOF(
+-----BEGIN CERTIFICATE-----
+MIIFazCCA1OgAwIBAgIRAIIQz7DSQONZRGPgu2OCiwAwDQYJKoZIhvcNAQELBQAw
+TzELMAkGA1UEBhMCVVMxKTAnBgNVBAoTIEludGVybmV0IFNlY3VyaXR5IFJlc2Vh
+cmNoIEdyb3VwMRUwEwYDVQQDEwxJU1JHIFJvb3QgWDEwHhcNMTUwNjA0MTEwNDM4
+WhcNMzUwNjA0MTEwNDM4WjBPMQswCQYDVQQGEwJVUzEpMCcGA1UEChMgSW50ZXJu
+ZXQgU2VjdXJpdHkgUmVzZWFyY2ggR3JvdXAxFTATBgNVBAMTDElTUkcgUm9vdCBY
+MTCCAiIwDQYJKoZIhvcNAQEBBQADggIPADCCAgoCggIBAK3oJHP0FDfzm54rVygc
+h77ct984kIxuPOZXoHj3dcKi/vVqbvYATyjb3miGbESTtrFj/RQSa78f0uoxmyF+
+0TM8ukj13Xnfs7j/EvEhmkvBioZxaUpmZmyPfjxwv60pIgbz5MDmgK7iS4+3mX6U
+A5/TR5d8mUgjU+g4rk8Kb4Mu0UlXjIB0ttov0DiNewNwIRt18jA8+o+u3dpjq+sW
+T8KOEUt+zwvo/7V3LvSye0rgTBIlDHCNAymg4VMk7BPZ7hm/ELNKjD+Jo2FR3qyH
+B5T0Y3HsLuJvW5iB4YlcNHlsdu87kGJ55tukmi8mxdAQ4Q7e2RCOFvu396j3x+UC
+B5iPNgiV5+I3lg02dZ77DnKxHZu8A/lJBdiB3QW0KtZB6awBdpUKD9jf1b0SHzUv
+KBds0pjBqAlkd25HN7rOrFleaJ1/ctaJxQZBKT5ZPt0m9STJEadao0xAH0ahmbWn
+OlFuhjuefXKnEgV4We0+UXgVCwOPjdAvBbI+e0ocS3MFEvzG6uBQE3xDk3SzynTn
+jh8BCNAw1FtxNrQHusEwMFxIt4I7mKZ9YIqioymCzLq9gwQbooMDQaHWBfEbwrbw
+qHyGO0aoSCqI3Haadr8faqU9GY/rOPNk3sgrDQoo//fb4hVC1CLQJ13hef4Y53CI
+rU7m2Ys6xt0nUW7/vGT1M0NPAgMBAAGjQjBAMA4GA1UdDwEB/wQEAwIBBjAPBgNV
+HRMBAf8EBTADAQH/MB0GA1UdDgQWBBR5tFnme7bl5AFzgAiIyBpY9umbbjANBgkq
+hkiG9w0BAQsFAAOCAgEAVR9YqbyyqFDQDLHYGmkgJykIrGF1XIpu+ILlaS/V9lZL
+ubhzEFnTIZd+50xx+7LSYK05qAvqFyFWhfFQDlnrzuBZ6brJFe+GnY+EgPbk6ZGQ
+3BebYhtF8GaV0nxvwuo77x/Py9auJ/GpsMiu/X1+mvoiBOv/2X/qkSsisRcOj/KK
+NFtY2PwByVS5uCbMiogziUwthDyC3+6WVwW6LLv3xLfHTjuCvjHIInNzktHCgKQ5
+ORAzI4JMPJ+GslWYHb4phowim57iaztXOoJwTdwJx4nLCgdNbOhdjsnvzqvHu7Ur
+TkXWStAmzOVyyghqpZXjFaH3pO3JLF+l+/+sKAIuvtd7u+Nxe5AW0wdeRlN8NwdC
+jNPElpzVmbUq4JUagEiuTDkHzsxHpFKVK7q4+63SM1N95R1NbdWhscdCb+ZAJzVc
+oyi3B43njTOQ5yOf+1CceWxG1bQVs5ZufpsMljq4Ui0/1lvh+wjChP4kqKOJ2qxq
+4RgqsahDYVvTH9w7jXbyLeiNdd8XM2w9U/t7y0Ff/9yi0GE44Za4rF2LN9d11TPA
+mRGunUHBcnWEvgJBQl9nJEiU0Zsnvgc/ubhPgXRR4Xq37Z0j4r7g1SgEEzwxA57d
+emyPxgcYxn/eR44/KJ4EBs+lVDR3veyJm+kXQ99b21/+jh5Xos1AnX5iItreGCc=
+-----END CERTIFICATE-----
+)EOF";
 
 String API_HOST = "https://zona-refri-api.herokuapp.com";
+// String API_HOST = "http://192.168.1.102:3001";
+String HOST = "zona-refri-api.herokuapp.com";
 //========================================== datos del coordinador
 //==========================================
 /// Identifier
@@ -430,16 +465,16 @@ void startInternetClient()
     Serial.print(ssidInternet);
     // Configures static IP address
     // Set your Static IP address
-    IPAddress local_IP(192, 168, 1, 200);
-    // Set your Gateway IP address
-    IPAddress gateway(192, 168, 1, 1);
-    IPAddress subnet(255, 255, 255, 0);
-    IPAddress primaryDNS(8, 8, 8, 8);   // optional
-    IPAddress secondaryDNS(8, 8, 4, 4); // optional
-    if (!WiFi.config(local_IP, gateway, subnet, primaryDNS, secondaryDNS))
-    {
-      Serial.println("[WIFI INTERNET] STA Fallo en la configuracion");
-    }
+    // IPAddress local_IP(192, 168, 1, 200);
+    // // Set your Gateway IP address
+    // IPAddress gateway(192, 168, 1, 1);
+    // IPAddress subnet(255, 255, 255, 0);
+    // IPAddress primaryDNS(8, 8, 8, 8);   // optional
+    // IPAddress secondaryDNS(8, 8, 4, 4); // optional
+    // if (!WiFi.config(local_IP, gateway, subnet, primaryDNS, secondaryDNS))
+    // {
+    //   Serial.println("[WIFI INTERNET] STA Fallo en la configuracion");
+    // }
     WiFi.begin(ssidInternet, passwordInternet);
     int tries = 0;
     while (WiFi.status() != WL_CONNECTED && tries <= 45)
@@ -637,10 +672,12 @@ void pushTemperature(float temp, String deviceId)
   Serial.print("UserId: ");
   Serial.print(userId);
   Serial.print("\n");
+  Serial.println(API_HOST + "/api/fridges/push");
 
-  espClient.setInsecure();
+  // espClient.setInsecure();
   HTTPClient http;
   http.begin(espClient, API_HOST + "/api/fridges/push");
+  // http.begin(espClient, HOST, 443, "/api/fridges/push", true);
   http.addHeader("Content-Type", "application/json");
   http.addHeader("Authorization", "Bearer " + token);
   http.addHeader("Host", "<calculated when request is sent>");
@@ -695,6 +732,9 @@ void loop()
   if (!configurationMode)
   {
 
+    // ! Las peticiones http deben realizarse en el loop principal
+    // pushTemperature(20, "631cc81b7cdd106307fd5ffe");
+    // delay(3000);
     // Publish info
     if (notifyInformation)
     {

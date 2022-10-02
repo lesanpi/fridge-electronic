@@ -492,9 +492,10 @@ void publishStateLocalCoordinator()
 
   if (result)
   {
-    Serial.print("...estado publicando exitosamente \n");
+    Serial.print("...estado publicando exitosamente");
     // Serial.print();
   }
+  Serial.print('\n');
 }
 
 void publishStateCloud()
