@@ -732,7 +732,7 @@ void loop()
   if (!configurationMode)
   {
 
-    // ! Las peticiones http deben realizarse en el loop principal
+    // ! Las peticiones http deben  realizarse en el loop principal
     // pushTemperature(20, "631cc81b7cdd106307fd5ffe");
     // delay(3000);
     // Publish info
