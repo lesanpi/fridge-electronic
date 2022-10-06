@@ -85,6 +85,17 @@ bool notifyError = false;
 /// Configuration mode
 bool configurationMode = true;
 bool configurationModeLightOn = false;
+
+//=============================== notifications
+//===============================
+String deviceIdToNotify = "";
+String deviceMessageToNotify = "";
+
+//=============================== temp graph
+//===============================
+String deviceIdToPublishTemp = "";
+double deviceTempToPublishTemp = 1024.0;
+
 //========================================== json
 //==========================================
 const size_t capacity = 1024;
@@ -329,21 +340,29 @@ public:
     if (topic.startsWith("temp/"))
     {
       String deviceId = topic.substring(5);
+      deviceIdToPublishTemp = deviceId;
+      deviceTempToPublishTemp = String(data_str).toDouble();
+
       Serial.print("[TEMP] Publicando temperatura del id: ");
       Serial.print(deviceId);
       Serial.print(" Temp: ");
       Serial.print(String(data_str));
       Serial.print("\n");
 
-      pushTemperature(String(data_str).toFloat(), deviceId);
+      // pushTemperature(String(data_str).toFloat(), deviceId);
     }
 
     if (topic.startsWith("notification/"))
     {
       String deviceId = topic.substring(13);
-      Serial.print("[NOTIFICATION] Publicando notificacion del id: ");
-      Serial.print(deviceId);
-      sendNotification((String)data_str, deviceId);
+      if (deviceIdToNotify.isEmpty() && deviceMessageToNotify.isEmpty())
+      {
+
+        deviceIdToNotify = deviceId;
+        deviceMessageToNotify = data_str;
+        Serial.print("[NOTIFICATION] Publicando notificacion del id: ");
+        Serial.print(deviceId);
+      }
     }
 
     // printClients();
@@ -477,13 +496,13 @@ void startInternetClient()
     // }
     WiFi.begin(ssidInternet, passwordInternet);
     int tries = 0;
-    while (WiFi.status() != WL_CONNECTED && tries <= 45)
+    while (WiFi.status() != WL_CONNECTED && tries <= 100)
     {
       // shouldPublish();
       tries = tries + 1;
-      // delay(100);
       Serial.print(".");
       delay(100);
+      yield();
     }
 
     Serial.print("\n[WIFI INTERNET] Salida del loop de conectarse a wifi con internet ");
@@ -622,6 +641,8 @@ void publishStateCloud(String id, String message)
 /// Notificar al usuario
 void sendNotification(String message, String deviceId)
 {
+  yield();
+
   DynamicJsonDocument payload(512);
   payload["id"] = deviceId;
   payload["user"] = userId;
@@ -630,7 +651,7 @@ void sendNotification(String message, String deviceId)
 
   ArduinoJWT jwt = ArduinoJWT(KEY);
   String token = jwt.encodeJWT(tokenEncoded);
-  Serial.println("[NOTIFICATION] Enviando notificacion al usuario");
+  Serial.println("\n[NOTIFICATION] Enviando notificacion al usuario");
 
   HTTPClient http;
   http.begin(espClient, API_HOST + "/api/fridges/alert");
@@ -642,20 +663,25 @@ void sendNotification(String message, String deviceId)
   jsonDoc["message"] = message;
   serializeJson(jsonDoc, body);
 
-  // yield();
+  yield();
   int httpCode = http.POST(body);
 
   Serial.println("[NOTIFICACION] Estatus code de la respuesta a la notificacion: ");
   Serial.print(String(httpCode));
   http.end();
+  yield();
+
+  deviceIdToNotify = "";
+  deviceMessageToNotify = "";
   // processResponse(httpCode, http);
 
   // yield();
 }
 
 /// Publicar temperatura
-void pushTemperature(float temp, String deviceId)
+void pushTemperature(double temp, String deviceId)
 {
+  yield();
   DynamicJsonDocument payload(512);
   payload["id"] = deviceId;
   payload["user"] = userId;
@@ -675,26 +701,29 @@ void pushTemperature(float temp, String deviceId)
   Serial.println(API_HOST + "/api/fridges/push");
 
   // espClient.setInsecure();
+  // yield();
   HTTPClient http;
   http.begin(espClient, API_HOST + "/api/fridges/push");
   // http.begin(espClient, HOST, 443, "/api/fridges/push", true);
   http.addHeader("Content-Type", "application/json");
   http.addHeader("Authorization", "Bearer " + token);
-  http.addHeader("Host", "<calculated when request is sent>");
-  http.addHeader("Content-Length", "<calculated when request is sent>");
 
   String body = "";
   StaticJsonDocument<300> jsonDoc;
   jsonDoc["temp"] = temp;
+  // jsonDoc["temp"] = 20.10;
   serializeJson(jsonDoc, body);
 
-  // yield();
   int httpCode = http.POST(body);
   Serial.print("[TEMPERATURA] Estatus code de la respuesta: ");
   Serial.println(String(httpCode));
   String payloadResponse = http.getString();
   Serial.println(payloadResponse);
   http.end();
+
+  yield();
+  deviceIdToPublishTemp = "";
+  deviceTempToPublishTemp = 1024.0;
 
   // processResponse(httpCode, http);
 
@@ -732,10 +761,32 @@ void loop()
   if (!configurationMode)
   {
 
-    // ! Las peticiones http deben  realizarse en el loop principal
-    // pushTemperature(20, "631cc81b7cdd106307fd5ffe");
-    // delay(3000);
-    // Publish info
+    if (WiFi.status() != WL_CONNECTED)
+    {
+      startInternetClient();
+    }
+
+    if (!deviceIdToNotify.isEmpty() && !deviceMessageToNotify.isEmpty())
+    {
+      yield();
+      sendNotification(deviceMessageToNotify, deviceIdToNotify);
+      yield();
+    }
+
+    // yield();
+    // pushTemperature(20.1, "631cc81b7cdd106307fd5ffe");
+    // yield();
+
+    if (!deviceIdToPublishTemp.isEmpty() && !(deviceTempToPublishTemp == 1024.0))
+    {
+      yield();
+      Serial.print("Publicando temperatura del deviceId: ");
+      Serial.print(deviceIdToPublishTemp);
+      Serial.print("Temp: ");
+      Serial.print(deviceTempToPublishTemp);
+      pushTemperature(deviceTempToPublishTemp, deviceIdToPublishTemp);
+      yield();
+    }
     if (notifyInformation)
     {
       // delay(1000);
