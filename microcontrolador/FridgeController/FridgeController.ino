@@ -24,10 +24,11 @@ Adafruit_SSD1306 display(SCREEN_WIDTH, SCREEN_HEIGHT, &Wire, OLED_RESET);
 
 //========================================== pins
 //==========================================
-#define CONFIGURATION_MODE_OUTPUT D5
-#define LIGHT D2
+#define CONFIGURATION_MODE_OUTPUT D8
+#define LIGHT D4
 #define DHTTYPE DHT11 // DHT 11
-#define COMPRESOR D1
+#define COMPRESOR D5
+
 #define KEY "secretphrase"
 #define BAJARTEMP D6
 #define SUBIRTEMP D7
@@ -834,10 +835,27 @@ void setup()
   Serial.begin(115200);
   /// Memory
   EEPROM.begin(1024);
+
+  // SSD1306_SWITCHCAPVCC = generate display voltage from 3.3V internally
+  if (!display.begin(SSD1306_SWITCHCAPVCC, 0x3C))
+  { // Address 0x3D for 128x64
+    Serial.println(F("SSD1306 allocation failed"));
+    for (;;)
+      ; // Don't proceed, loop forever
+  }
+
+  display.clearDisplay();
+  display.display();
+
   // while (!EEPROM) {}
   while (!Serial)
   {
   }
+
+  // Clear the buffer
+  display.clearDisplay();
+  display.display();
+
   // btSerial.begin(9600);
   espClient.setInsecure();
 
@@ -1159,6 +1177,7 @@ void onAction(JsonObject json)
 void readTemperature()
 {
   float temperatureRead = dht.readTemperature();
+  displayTemperature(temperatureRead);
   if (int(temperatureRead) != temperature)
   {
     temperature = int(temperatureRead);
@@ -1728,26 +1747,47 @@ void shouldPushTempNotification()
 //===================================
 
 /// Display temperature
-void displayTemperature()
+void displayTemperature(float temp)
 {
-  display.clearDisplay();
 
+  display.clearDisplay();
+  // display.display();
+
+  display.setTextSize(1);
   String tempDText = "Temp. deseada: " + String(temperaturaDeseada);
 
-  display.setTextSize(1);              // Normal 1:1 pixel scale
-  display.setTextColor(SSD1306_WHITE); // Draw white text
-  display.setCursor(0, 0);             // Start at top-left corner
-  display.print(F("Temp. deseada: "));
-
-  display.setTextColor(SSD1306_BLACK, SSD1306_WHITE); // Draw 'inverse' text
-  display.print(temperaturaDeseada);
-  display.print("°C");
-
-  // display.setTextSize(2);             // Draw 2X-scale text
-  // display.setTextColor(SSD1306_WHITE);
-  // display.print(F("°C"));
-  // display.println(0xDEADBEEF, HEX);
-
+  display.setTextColor(SSD1306_WHITE);
+  display.setCursor(0, 0);
+  display.println(tempDText);
+  display.println("---------------------");
+  display.setCursor(28, 27);
+  display.setTextSize(3);
+  display.print(temp, 1);
+  display.print((char)247);
   display.display();
+  // display.clearDisplay();
+  // display.display();
+
+  // String tempDText = "Temp. deseada: " + String(temperaturaDeseada);
+
+  // display.setTextSize(1);              // Normal 1:1 pixel scale
+  // display.setTextColor(SSD1306_WHITE); // Draw white text
+  // display.setCursor(0, 0);             // Start at top-left corner
+  // display.print(F("Temp. deseada: "));
+
+  // display.setTextColor(SSD1306_WHITE); // Draw 'inverse' text
+  // display.print(temperaturaDeseada);
+  // display.print((char)247);
+  // // display.setTextSize(2);             // Draw 2X-scale text
+  // // display.setTextColor(SSD1306_WHITE);
+  // // display.print(F("°C"));
+  // // display.println(0xDEADBEEF, HEX);
+
+  // display.setCursor(28, 27);
+  // display.setTextSize(3);
+  // display.print(temp, 1);
+  // display.print((char)247);
+  // display.display();
+
   // delay(2000);
 }
