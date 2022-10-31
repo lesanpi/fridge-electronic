@@ -78,19 +78,6 @@ const size_t capacity = 1024;
 const size_t state_capacity = 360;
 DynamicJsonDocument state(state_capacity);       // State, sensors, outputs...
 DynamicJsonDocument information(state_capacity); // Information, name, id, ssid...
-DynamicJsonDocument memoryJson(capacity);        // State, sensors, outputs...
-DynamicJsonDocument error(128);                  // State, sensors, outputs...
-
-// Convert to json
-JsonObject toJson(String str)
-{
-  // Serial.println(str);
-  DynamicJsonDocument docInput(1024);
-  JsonObject json;
-  deserializeJson(docInput, str);
-  json = docInput.as<JsonObject>();
-  return json;
-}
 
 /// Returns the JSON converted to String
 String jsonToString(DynamicJsonDocument json)
@@ -107,6 +94,7 @@ bool notifyInformation = false;
 bool notifyState = false;
 bool notifyError = false;
 bool retryCoordinatorConnection = false;
+// bool retryInternetConnection = false;
 /// Configuration mode
 bool configurationMode = true;
 bool configurationModeLightOn = false;
@@ -184,12 +172,6 @@ void setInformation()
   information["configurationMode"] = configurationMode;
 }
 
-void setError()
-{
-  error["id"] = id;
-  error["error"] = error;
-}
-
 //========================================== sensors
 //==========================================
 DHT dht(DHTPin, DHTTYPE);
@@ -205,7 +187,7 @@ unsigned long previousTemperatureNoticationMillis = 0;
 const long notifyInformationInterval = 2500;
 unsigned long previousNotifyInformation = 0;
 
-const long retryWifiConnectionInterval = 1000 * 60 * 5;
+const long retryWifiConnectionInterval = 1000 * 60 * 3;
 unsigned long previousRetryWifiConnection = 0;
 
 //========================================== memoria
@@ -259,6 +241,7 @@ void getMemoryData()
         temperaturaDeseada = json["desiredTemperature"];
         minTemperature = json["minTemperature"];
         maxTemperature = json["maxTemperature"];
+        light = bool(json["light"]);
         standalone = bool(json["standalone"]) || String(json["standalone"]).equals("null");
       }
       else
@@ -288,6 +271,7 @@ void getMemoryData()
     temperaturaDeseada = json["desiredTemperature"];
     minTemperature = json["minTemperature"];
     maxTemperature = json["maxTemperature"];
+    light = bool(json["light"]);
 
     standalone = bool(json["standalone"]) || String(json["standalone"]).equals("null");
   }
@@ -316,10 +300,12 @@ void getMemoryData()
 /// Guardar los datos en memoria
 void setMemoryData()
 {
+  DynamicJsonDocument memoryJson(capacity); // State, sensors, outputs...
   memoryJson["id"] = id;
   memoryJson["userId"] = userId;
   memoryJson["name"] = name;
   memoryJson["desiredTemperature"] = temperaturaDeseada;
+  memoryJson["light"] = light;
   memoryJson["maxTemperature"] = maxTemperature;
   memoryJson["minTemperature"] = minTemperature;
   memoryJson["standalone"] = standalone;
@@ -334,6 +320,7 @@ void setMemoryData()
   EepromStream eepromStream(0, 2048);
   serializeJson(memoryJson, eepromStream);
   EEPROM.commit();
+  memoryJson.clear();
 }
 
 //========================================== Cliente MQTT y Cliente WiFi
@@ -533,12 +520,12 @@ void publishInformation()
 
 void publishError()
 {
-  String errorEncoded = jsonToString(error);
+  // String errorEncoded = jsonToString(error);
   if (standalone)
   {
     // Publish on Standalone Mode
-    Serial.println("Publicando error:" + errorEncoded);
-    myBroker.publish("error", errorEncoded);
+    Serial.println("Publicando error:");
+    myBroker.publish("error", "Error");
   }
   else
   {
@@ -550,8 +537,8 @@ void publishError()
 /// Reconnect cloud connection
 void reconnectCloud()
 {
-  if (userLocalConnected)
-    return;
+  // if (userLocalConnected)
+  //   return;
 
   if (configurationMode)
     return;
@@ -568,7 +555,10 @@ void reconnectCloud()
   cloudClient.setServer(mqtt_cloud_server, mqtt_cloud_port);
   cloudClient.setCallback(cloud_callback);
 
-  while (!cloudClient.connected() && tries <= 20)
+  yield();
+  Serial.println("Free heap> ");
+  Serial.println(ESP.getFreeHeap());
+  while (!cloudClient.connected() && tries <= 5)
   {
 
     Serial.print("[INTERNET] Intentando conexion MQTT...");
@@ -625,13 +615,14 @@ void startInternetClient()
     // }
     WiFi.begin(ssidInternet, passwordInternet);
     int tries = 0;
-    while (WiFi.status() != WL_CONNECTED && tries <= 30)
+    while (WiFi.status() != WL_CONNECTED && tries <= 200)
     {
       shouldPublish();
-      delay(500);
+      delay(200);
       tries = tries + 1;
       // delay(100);
       Serial.print(".");
+      yield();
     }
 
     Serial.print("\n[WIFI INTERNET] Salida del loop de conectarse a wifi con internet ");
@@ -648,10 +639,12 @@ void startInternetClient()
       cloudClient.setServer(mqtt_cloud_server, mqtt_cloud_port);
       cloudClient.setCallback(cloud_callback);
       reconnectCloud();
+      // retryInternetConnection = false;
     }
     else
     {
       Serial.print("\n[WIFI INTERNET] NO conectado. ");
+      // retryInternetConnection = true;
     }
   }
 }
@@ -921,6 +914,8 @@ void shouldPublish()
 void loop()
 {
 
+  lightLoop();
+
   if (!configurationMode)
   {
 
@@ -949,6 +944,7 @@ void loop()
         }
       }
     }
+
     /// Reintentar conexion al WiFi
     if (WiFi.status() != WL_CONNECTED)
     {
@@ -975,12 +971,32 @@ void loop()
     }
     else
     {
-      userLocalConnected = false;
+      // userLocalConnected = false;
+    }
+
+    if (retryCoordinatorConnection)
+    {
+      boolean canReconnection = millis() - previousRetryWifiConnection >= retryWifiConnectionInterval;
+      if (canReconnection)
+      {
+        previousRetryWifiConnection = millis();
+
+        Serial.println("\n[LOCAL] Conectandose al Wifi del Coordinador y al servidor MQTT...");
+        bool connected = startWiFiClient();
+        if (!connected)
+        {
+          Serial.println("[LOCAL] No se pudo conectase al coordinador, iniciando indepente...");
+          startWiFiAP();
+          startInternetClient();
+        }
+      }
     }
 
     if (!cloudClient.connected() && standalone)
       reconnectCloud();
-    if (cloudClient.connected() && !userLocalConnected && standalone)
+    if (cloudClient.connected()
+        // && !userLocalConnected
+        && standalone)
       cloudClient.loop();
 
     // Mantener activo el cliente MQTT (Modo Independietne)
@@ -1003,14 +1019,6 @@ void loop()
 
     /// verificando si deberia enviar push notification
     shouldPushTempNotification();
-
-    // if (notifyError){
-    //   Serial.println("Notificando error");
-    //   setError();
-    //   publishError();
-
-    //   notifyError = false;
-    // }
   }
   else
   {
@@ -1050,8 +1058,6 @@ void loop()
     if (notifyError)
     {
       Serial.println("Notificando error");
-      setError();
-      publishError();
 
       notifyError = false;
     }
@@ -1201,16 +1207,20 @@ void readTemperature()
 void toggleLight()
 {
   light = !light;
+  lightLoop();
+}
 
+void lightLoop()
+{
   if (light)
   {
     digitalWrite(LIGHT, HIGH); // envia señal alta al relay
-    Serial.println("Enciende la luz");
+    // Serial.println("Enciende la luz");
   }
   else
   {
     digitalWrite(LIGHT, LOW); // envia señal alta al relay
-    Serial.println("Apaga la luz");
+    // Serial.println("Apaga la luz");
   }
 }
 
@@ -1387,7 +1397,6 @@ void configureDevice(
   setMaxTemperature(_maxTemperature);
   setMinTemperature(_minTemperature);
   setMemoryData();
-  configurationMode = false;
   Serial.println("[CONFIG] Se guardo los datos en memoria");
   Serial.println("[CONFIG] Se configurara el wifi nuevamente");
   // WiFi.mode(WIFI_OFF);
@@ -1397,8 +1406,17 @@ void configureDevice(
   startInternetClient();
   // setupWifi();
   Serial.println("[CONFIG] Se configurara el id");
-  crearNevera(userId);
+  bool configurado = crearNevera(userId);
 
+  if (configurado)
+  {
+    Serial.println("[CONFIG] Se termino de configurar compeltamente");
+    configurationMode = false;
+  }
+  else
+  {
+    Serial.println("[CONFIG] No se pudo configurar compeltamente");
+  }
   // TODO(lesanpi): Save internetSsid and internetPassword
   // setStandaloneMode(_ssid);
   // if (!standalone){
@@ -1408,7 +1426,6 @@ void configureDevice(
   //   setCoordinatorMode(coordinatorSsid, coordinatorPassword);
   // }
 
-  Serial.println("[CONFIG] Se termino de configurar compeltamente");
   // ESP.reset();
 }
 
@@ -1464,7 +1481,10 @@ void pushTemperature(float temp)
   String token = jwt.encodeJWT(tokenEncoded);
   Serial.println("[TEMPERATURA] Publicando temperatura ");
   Serial.print(String(temp));
-
+  yield();
+  Serial.println("Free heap> ");
+  Serial.println(ESP.getFreeHeap());
+  yield();
   if (standalone)
   {
     HTTPClient http;
@@ -1541,14 +1561,21 @@ bool crearNevera(String userId)
         Serial.println("\n[CONFIG] Nuevo id: ");
         Serial.print(id);
         configurationMode = false;
+        http.end();
+
         return true;
       }
+      http.end();
+
+      return false;
     }
     else
     {
       Serial.print("Error code: ");
       Serial.println(httpCode);
       Serial.printf("[HTTP] GET... failed, error: %s\n", http.errorToString(httpCode).c_str());
+      http.end();
+
       return false;
     }
 
@@ -1674,31 +1701,31 @@ void controlBotones()
     upTempFlag = false;
   }
 
-  if (digitalRead(FACTORYREST))
-  {
-    if (!restoreFactoryFlag)
-    {
-      tiempoAnteriorRf = millis();
-      restoreFactoryFlag = true;
-      Serial.println("....................................5 segundos para reinicir el equipo...............................");
-    }
-    /// Si pasan 5 segundos aplica el if
-    if ((millis() - tiempoAnteriorRf) >= 5000)
-    {
-      restoreFactoryFlagFinish = true;
-      Serial.println("Equipo se reiniciara de fabrica");
-    }
-  }
-  else
-  {
-    restoreFactoryFlag = false;
-    if (restoreFactoryFlagFinish)
-    {
-      restoreFactoryFlagFinish = false;
-      Serial.println("Equipo reiniciado de fabrica");
-      factoryRestore();
-    }
-  }
+  // if (digitalRead(FACTORYREST))
+  // {
+  //   if (!restoreFactoryFlag)
+  //   {
+  //     tiempoAnteriorRf = millis();
+  //     restoreFactoryFlag = true;
+  //     Serial.println("....................................5 segundos para reinicir el equipo...............................");
+  //   }
+  //   /// Si pasan 5 segundos aplica el if
+  //   if ((millis() - tiempoAnteriorRf) >= 5000)
+  //   {
+  //     restoreFactoryFlagFinish = true;
+  //     Serial.println("Equipo se reiniciara de fabrica");
+  //   }
+  // }
+  // else
+  // {
+  //   restoreFactoryFlag = false;
+  //   if (restoreFactoryFlagFinish)
+  //   {
+  //     restoreFactoryFlagFinish = false;
+  //     Serial.println("Equipo reiniciado de fabrica");
+  //     factoryRestore();
+  //   }
+  // }
 }
 
 void shouldPushTempNotification()
