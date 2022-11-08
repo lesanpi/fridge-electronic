@@ -24,19 +24,25 @@ Adafruit_SSD1306 display(SCREEN_WIDTH, SCREEN_HEIGHT, &Wire, OLED_RESET);
 
 //========================================== pins
 //==========================================
-#define CONFIGURATION_MODE_OUTPUT D8
-#define LIGHT D4
-#define DHTTYPE DHT11 // DHT 11
-#define COMPRESOR D5
+
 
 #define KEY "secretphrase"
+#define DHTTYPE DHT11 // DHT 11
+
+
+#define FACTORYREST D0
+uint8_t DHTPin = D3; /// DHT1
+#define COMPRESOR D4
+#define ELECTRICIDAD D5
 #define BAJARTEMP D6
 #define SUBIRTEMP D7
-#define FACTORYREST D0
+#define CONFIGURATION_MODE_OUTPUT D8
+#define LIGHT D8
+
+
 
 String API_HOST = "https://zona-refri-api.herokuapp.com";
 // String API_HOST = "http://192.168.1.102:3001";
-uint8_t DHTPin = D3; /// DHT1
 
 //========================================== jwt
 //==========================================
@@ -71,6 +77,10 @@ bool restoreFactoryFlag = false;       // Bandera de boton de restoreFactory
 bool restoreFactoryFlagFinish = false; // Bandera de restoreFactory para aplicar funcion cuando se deje de presionar el boton
 unsigned long tiempoAnteriorTe;        //
 unsigned long tiempoAnteriorRf;
+
+unsigned long tiempo1LecturaFallaElectrica = 0;
+unsigned long tiempo2LecturaFallaElectrica = 0;
+unsigned long intervaloFallaElectrica = 0;
 
 //========================================== json
 //==========================================
@@ -157,6 +167,7 @@ void setState()
   state["ssidCoordinator"] = ssidCoordinator;
   state["ssidInternet"] = ssidInternet;
   state["isConnectedToWifi"] = WiFi.status() == WL_CONNECTED;
+  state["battery"] = fallaElectrica();
   // Serial.println("[JSON DEBUG][STATE] erflowed: " + String(state.overflowed()));
   // Serial.println("[JSON DEBUG][STATE] Is memoryUsage: " + String(state.memoryUsage()));
   // Serial.println("[JSON DEBUG][STATE] Is siIs ovze: " + String(state.size()));
@@ -853,12 +864,13 @@ void setup()
   espClient.setInsecure();
 
   /// Configuration mode light output
-  pinMode(CONFIGURATION_MODE_OUTPUT, OUTPUT);
+  // pinMode(CONFIGURATION_MODE_OUTPUT, OUTPUT);
   pinMode(LIGHT, OUTPUT);
   pinMode(COMPRESOR, OUTPUT);
   pinMode(BAJARTEMP, INPUT);
   pinMode(SUBIRTEMP, INPUT);
   pinMode(FACTORYREST, INPUT);
+  pinMode(ELECTRICIDAD, INPUT);
 
   /// Setup WiFi
   // setupWifi();
@@ -916,16 +928,27 @@ void loop()
 
   lightLoop();
 
+  if(fallaElectrica()){
+    tiempo2LecturaFallaElectrica = millis();
+    if(tiempo2LecturaFallaElectrica > tiempo1LecturaFallaElectrica + intervaloFallaElectrica){
+      tiempo1LecturaFallaElectrica = millis();
+      Serial.println("[ELECTRICIDAD] Falla electrica... Enviando notificacion");
+      sendNotification("Ha ocurrido una falla electrica, se esta usando la bateria de respaldo");
+    }
+    
+
+  }
+
   if (!configurationMode)
   {
 
-    if (configurationModeLightOn)
-    {
-      Serial.println("[SETUP] Apagando luces de modo de configuración...");
-      digitalWrite(CONFIGURATION_MODE_OUTPUT, LOW);
-      Serial.println("[SETUP] Modo de configuración desactivado");
-      configurationModeLightOn = false;
-    }
+    // if (configurationModeLightOn)
+    // {
+    //   Serial.println("[SETUP] Apagando luces de modo de configuración...");
+    //   digitalWrite(CONFIGURATION_MODE_OUTPUT, LOW);
+    //   Serial.println("[SETUP] Modo de configuración desactivado");
+    //   configurationModeLightOn = false;
+    // }
 
     if (retryCoordinatorConnection)
     {
@@ -1043,15 +1066,15 @@ void loop()
     }
 
     // readDataFromBluetooth();
-    if (!configurationModeLightOn)
-    {
-      Serial.println("[SETUP] Encendiendo luces de modo de configuración...");
+    // if (!configurationModeLightOn)
+    // {
+    //   Serial.println("[SETUP] Encendiendo luces de modo de configuración...");
 
-      digitalWrite(CONFIGURATION_MODE_OUTPUT, HIGH);
-      Serial.println("[SETUP] Modo de configuración activado");
+    //   digitalWrite(CONFIGURATION_MODE_OUTPUT, HIGH);
+    //   Serial.println("[SETUP] Modo de configuración activado");
 
-      configurationModeLightOn = true;
-    }
+    //   configurationModeLightOn = true;
+    // }
 
     shouldPublish();
 
@@ -1369,8 +1392,6 @@ void configureDevice(
   // id = _id;
   userId = _userId;
   // configurationMode = false;
-  digitalWrite(CONFIGURATION_MODE_OUTPUT, LOW);
-  configurationModeLightOn = false;
 
   name = _name;
   maxTemperature = _maxTemperature;
@@ -1810,11 +1831,23 @@ void displayTemperature(float temp)
   // // display.print(F("°C"));
   // // display.println(0xDEADBEEF, HEX);
 
-  // display.setCursor(28, 27);
+  // dintisplay.setCursor(28, 27);
   // display.setTextSize(3);
-  // display.print(temp, 1);
+  // display.(temp, 1);
   // display.print((char)247);
   // display.display();
 
   // delay(2000);
+}
+
+bool fallaElectrica(){
+  bool batteryOn = false;
+  if(digitalRead(ELECTRICIDAD)){
+  batteryOn = false;
+//   Serial.println("Ok"); 
+  }else{
+  batteryOn = true; 
+//   Serial.println("....................................SE ESTA USANDO LA BATERIA DE RESPALDO..............................."); 
+  }
+  return batteryOn;
 }
