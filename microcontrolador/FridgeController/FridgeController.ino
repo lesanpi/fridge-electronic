@@ -31,13 +31,14 @@ Adafruit_SSD1306 display(SCREEN_WIDTH, SCREEN_HEIGHT, &Wire, OLED_RESET);
 
 
 #define FACTORYREST D0
+//D1 Y D2 PANTALLA
 uint8_t DHTPin = D3; /// DHT1
 #define COMPRESOR D4
 #define ELECTRICIDAD D5
 #define BAJARTEMP D6
 #define SUBIRTEMP D7
-#define CONFIGURATION_MODE_OUTPUT D8
 #define LIGHT D8
+// #define CONFIGURATION_MODE_OUTPUT D8
 
 
 
@@ -1722,6 +1723,24 @@ void controlBotones()
     upTempFlag = false;
   }
 
+  if(digitalRead(SUBIRTEMP) && digitalRead(BAJARTEMP)){
+    if(!restoreFactoryFlag){
+      tiempoAnteriorRf = millis();
+      restoreFactoryFlag = true;
+      Serial.println("[RESTORE FACTORY] 5 seg para reiniciar el equipo");
+    }
+    if((millis()-tiempoAnteriorRf) >= 5000 && !restoreFactoryFlagFinish){ //Si pasan 5 segundos aplica el if
+      restoreFactoryFlagFinish = true;
+      Serial.println("[RESTORE FACTORY] Equipo se reiniciara de fabrica al soltar los botones");
+    } 
+  }else{
+    restoreFactoryFlag = false;
+    if(restoreFactoryFlagFinish){
+      restoreFactoryFlagFinish = false;
+      Serial.println("[RESTORE FACTORY] Equipo reiniciado de fabrica");
+      factoryRestore();
+    }
+  }
   // if (digitalRead(FACTORYREST))
   // {
   //   if (!restoreFactoryFlag)
