@@ -62,7 +62,7 @@ float humidity = 70;        // Sensor humidity
 int maxTemperature = 20;    // Parametro temperatura minima permitida.
 int minTemperature = -10;   // Parametro temperatura maxima permitida.
 int temperaturaDeseada = 4; // Parametro temperatura recibida por el usuario.
-
+bool softApEnabled = false;
 // Para almacenar el tiempo en milisegundos.
 unsigned long tiempoAnterior = 0;
 // 7 minutos de espera de tiempo prudencial para volver a encender el compresor.
@@ -80,14 +80,13 @@ unsigned long tiempoAnteriorRf;
 
 unsigned long tiempo1LecturaFallaElectrica = 0;
 unsigned long tiempo2LecturaFallaElectrica = 0;
-unsigned long intervaloFallaElectrica = 0;
+unsigned long intervaloFallaElectrica = 1000 * 60 * 5;
 
 //========================================== json
 //==========================================
 const size_t capacity = 1024;
 const size_t state_capacity = 360;
 DynamicJsonDocument state(state_capacity);       // State, sensors, outputs...
-DynamicJsonDocument information(state_capacity); // Information, name, id, ssid...
 
 /// Returns the JSON converted to String
 String jsonToString(DynamicJsonDocument json)
@@ -173,15 +172,6 @@ void setState()
   // Serial.println("[JSON DEBUG][STATE] Is siIs ovze: " + String(state.size()));
 }
 
-/// Initialize or update the JSON Info of the MQTT Connection (Standalone)
-void setInformation()
-{
-  information["id"] = id;
-  information["name"] = name;
-  information["ssid"] = ssid;
-  information["standalone"] = standalone;
-  information["configurationMode"] = configurationMode;
-}
 
 //========================================== sensors
 //==========================================
@@ -195,11 +185,13 @@ unsigned long previousTemperaturePushMillis = 0;
 const long interval = 1000 * 60 * 20;
 unsigned long previousTemperatureNoticationMillis = 0;
 
-const long notifyInformationInterval = 2500;
+const long notifyInformationInterval = 1000;
 unsigned long previousNotifyInformation = 0;
 
 const long retryWifiConnectionInterval = 1000 * 60 * 3;
 unsigned long previousRetryWifiConnection = 0;
+
+unsigned long debugMemoryTime;
 
 //========================================== memoria
 //==========================================
@@ -291,7 +283,7 @@ void getMemoryData()
   {
 
     Serial.print("\n[MEMORIA] Standalone: ");
-    Serial.print(String(json["standalone"]));
+    Serial.println(String(json["standalone"]));
     if (minTemperature == maxTemperature)
     {
       minTemperature = maxTemperature - 1;
@@ -345,7 +337,7 @@ public:
     Serial.println(addr.toString() + " connected");
     notifyInformation = true;
 
-    setInformation();
+  
     publishInformation();
     return true;
   }
@@ -361,7 +353,6 @@ public:
     Serial.println("[LOCAL BROKER][AUTH] Username/Password/ClientId: " + username + "/" + password + "/" + client_id);
     notifyInformation = true;
 
-    setInformation();
     publishInformation();
     userLocalConnected = true;
 
@@ -468,7 +459,7 @@ void publishStateLocalBroker()
 {
   setState();
   String stateEncoded = jsonToString(state);
-  Serial.println("[PUBLISH][LOCAL BROKER] Publicando estado: " + stateEncoded);
+  // Serial.println("[PUBLISH][LOCAL BROKER] Publicando estado: " + stateEncoded);
   myBroker.publish("state/" + id, stateEncoded);
 }
 
@@ -477,7 +468,7 @@ void publishStateLocalCoordinator()
 {
   setState();
   String stateEncoded = jsonToString(state);
-  Serial.print("[PUBLISH][LOCAL COORDINATOR] Publicando estado: " + stateEncoded);
+  // Serial.print("[PUBLISH][LOCAL COORDINATOR] Publicando estado: " + stateEncoded);
   // if (coordinatorClient.connected())
   // {
   //   if (coordinatorClient.publish((("state/" + id)).c_str(), stateEncoded.c_str(), true))
@@ -503,11 +494,11 @@ void publishStateCloud()
   String stateEncoded = jsonToString(state);
   if (cloudClient.connected())
   {
-    Serial.println("[PUBLISH][CLOUD] Publicando estado: " + stateEncoded);
+    // Serial.println("[PUBLISH][CLOUD] Publicando estado: " + stateEncoded);
     if (cloudClient.publish((("state/" + id)).c_str(), stateEncoded.c_str(), true))
     {
-      Serial.print("[INTERNET] Estado publicado en: ");
-      Serial.println(String(("state/" + id)).c_str());
+      // Serial.print("[INTERNET] Estado publicado en: ");
+      // Serial.println(String(("state/" + id)).c_str());
     }
     // cloudClient.publish(String("state/62f90f52d8f2c401b58817e3").c_str(), stateEncoded2.c_str(), true);
   }
@@ -516,6 +507,12 @@ void publishStateCloud()
 /// Publicar la información de la comunicación/conexión
 void publishInformation()
 {
+  DynamicJsonDocument information(state_capacity); // Information, name, id, ssid...
+  information["id"] = id;
+  information["name"] = name;
+  information["ssid"] = ssid;
+  information["standalone"] = standalone;
+  information["configurationMode"] = configurationMode;
   String informationEncoded = jsonToString(information);
   if (standalone)
   {
@@ -527,6 +524,8 @@ void publishInformation()
   {
     // TODO: Publish on Coordinator Mode
   }
+
+  information.clear();
 }
 
 void publishError()
@@ -567,8 +566,7 @@ void reconnectCloud()
   cloudClient.setCallback(cloud_callback);
 
   yield();
-  Serial.println("Free heap> ");
-  Serial.println(ESP.getFreeHeap());
+  logMemory();
   while (!cloudClient.connected() && tries <= 5)
   {
 
@@ -604,7 +602,7 @@ void startInternetClient()
 {
   /// No hacer return si esta en modo configuracion, quitaria el internet.
 
-  Serial.print("[WIFI INTERNET]Wifi con Internet: ");
+  Serial.print("[WIFI INTERNET] Wifi con Internet: ");
   Serial.print(ssidInternet);
 
   /// Conectarse al Wifi con Internet
@@ -612,18 +610,6 @@ void startInternetClient()
   {
     Serial.print("[WIFI INTERNET] Conectandose al Wifi con Internet: ");
     Serial.print(ssidInternet);
-    // Configures static IP address
-    // Set your Static IP address
-    // IPAddress local_IP(192, 168, 1, 200);
-    // // Set your Gateway IP address
-    // IPAddress gateway(192, 168, 1, 1);
-    // IPAddress subnet(255, 255, 255, 0);
-    // IPAddress primaryDNS(8, 8, 8, 8);   // optional
-    // IPAddress secondaryDNS(8, 8, 4, 4); // optional
-    // if (!WiFi.config(local_IP, gateway, subnet, primaryDNS, secondaryDNS))
-    // {
-    //   Serial.println("[WIFI INTERNET] STA Fallo en la configuracion");
-    // }
     WiFi.begin(ssidInternet, passwordInternet);
     int tries = 0;
     while (WiFi.status() != WL_CONNECTED && tries <= 200)
@@ -781,10 +767,22 @@ void setupWifi()
   WiFi.mode(WIFI_AP_STA);
   /// Standalone Mode, configurar punto de acceso (WiFI) y el servidor MQTT
   /// para el modo independiente
+
+  /// Setup WiFi AP to configure
+  if (configurationMode){
+    Serial.println("[LOCAL AP] Soft AP Iniciado. Modo configuracion activado.");
+    startWiFiAP();
+    return;
+  }
+
+  /// Electrical issue, emergency mode
+  if (fallaElectrica()){
+    // Start WiFi AP because the system have an electrical issue
+    Serial.println("[LOCAL AP] Soft AP Iniciado. Modo ahorro activado.");
+  }
+
   if (standalone)
   {
-    // We start by connecting to a WiFi network or create the AP
-    startWiFiAP();
     /// Primero se crea el AP y despues el del Internet, por que el de internet puede tardar mas
     /// Tambien por que es propenso a fallos como: WiFi no encontrado, señal baja, contraseña in correcta, etc...
     startInternetClient();
@@ -799,7 +797,7 @@ void setupWifi()
       Serial.println("[LOCAL] No se pudo conectase al coordinador, iniciando indepente...");
       standalone = true;
       retryCoordinatorConnection = true;
-      startWiFiAP();
+      // startWiFiAP();
       startInternetClient();
     }
     else
@@ -877,7 +875,6 @@ void setup()
   delay(5000);
   getMemoryData();
   setupWifi();
-  setInformation();
   publishInformation();
   cloudClient.setBufferSize(512);
 
@@ -886,6 +883,8 @@ void setup()
 
   /// Dht Begin
   dht.begin();
+
+  debugMemoryTime = millis();
 }
 
 //================================================ loop
@@ -899,56 +898,65 @@ void shouldPublish()
   {
     // Serial.println("[PUBLISH INFORMATION]");
     previousNotifyInformation = millis();
-    setInformation();
     publishInformation();
     if (!configurationMode)
     {
-      if ((userLocalConnected || myBroker.getClientCount() > 0) && standalone)
+    
+      if (softApEnabled && myBroker.getClientCount() > 0)
       {
         publishStateLocalBroker();
       }
+      
+      if (!standalone)
+      {
+
+        publishStateLocalCoordinator();
+      }
       else
       {
-        if (!standalone)
-        {
-
-          publishStateLocalCoordinator();
-        }
-        else
-        {
-          publishStateCloud();
-        }
+        if (softApEnabled) return;
+        publishStateCloud();
       }
+      
     }
   }
+}
+
+unsigned long freeRam;
+void logMemory(){
+  if(millis() - debugMemoryTime <= 1000) return;
+  if(ESP.getFreeHeap() == freeRam) return;
+  debugMemoryTime = millis();
+  freeRam = ESP.getFreeHeap();
+  Serial.print("[RAM] RAM: ");
+  Serial.println(freeRam);
 }
 
 void loop()
 {
 
-  lightLoop();
-
-  if(fallaElectrica()){
-    tiempo2LecturaFallaElectrica = millis();
-    if(tiempo2LecturaFallaElectrica > tiempo1LecturaFallaElectrica + intervaloFallaElectrica){
-      tiempo1LecturaFallaElectrica = millis();
-      Serial.println("[ELECTRICIDAD] Falla electrica... Enviando notificacion");
-      sendNotification("Ha ocurrido una falla electrica, se esta usando la bateria de respaldo");
-    }
-    
-
-  }
+  logMemory();
 
   if (!configurationMode)
   {
 
-    // if (configurationModeLightOn)
-    // {
-    //   Serial.println("[SETUP] Apagando luces de modo de configuración...");
-    //   digitalWrite(CONFIGURATION_MODE_OUTPUT, LOW);
-    //   Serial.println("[SETUP] Modo de configuración desactivado");
-    //   configurationModeLightOn = false;
-    // }
+    lightLoop();
+
+    wifiAPLoop();
+
+    if(fallaElectrica()){
+      tiempo2LecturaFallaElectrica = millis();
+      if(tiempo2LecturaFallaElectrica > tiempo1LecturaFallaElectrica + intervaloFallaElectrica || tiempo1LecturaFallaElectrica < intervaloFallaElectrica){
+        tiempo1LecturaFallaElectrica = millis();
+        if (millis() < intervaloFallaElectrica){
+          tiempo1LecturaFallaElectrica = intervaloFallaElectrica;
+        }
+        Serial.println("[ELECTRICIDAD] Falla electrica... Enviando notificacion");
+        sendNotification("Ha ocurrido una falla electrica, se esta usando la bateria de respaldo");
+      }
+    
+    }
+
 
     if (retryCoordinatorConnection)
     {
@@ -1015,12 +1023,12 @@ void loop()
       }
     }
 
-    if (!cloudClient.connected() && standalone)
+    if (!cloudClient.connected() && standalone && !fallaElectrica()){
       reconnectCloud();
-    if (cloudClient.connected()
-        // && !userLocalConnected
-        && standalone)
+    }
+    if (cloudClient.connected() && standalone  && !fallaElectrica()){
       cloudClient.loop();
+    }
 
     // Mantener activo el cliente MQTT (Modo Independietne)
     if (!standalone)
@@ -1209,9 +1217,11 @@ void readTemperature()
   displayTemperature(temperatureRead);
   if (int(temperatureRead) != temperature)
   {
-    temperature = int(temperatureRead);
+    if (!std::isnan(temperatureRead)){
+      temperature = int(temperatureRead);
+    }
     // temperature = 10;
-    Serial.println("[NOTIFY STATE] Cambio de temperatura");
+    // Serial.println("[NOTIFY STATE] Cambio de temperatura");
   }
 
   boolean canPushTemperature = millis() - previousTemperaturePushMillis >= updateTempInterval;
@@ -1433,6 +1443,8 @@ void configureDevice(
   {
     Serial.println("[CONFIG] Se termino de configurar compeltamente");
     configurationMode = false;
+    WiFi.softAPdisconnect(true);
+
   }
   else
   {
@@ -1477,8 +1489,10 @@ void sendNotification(String message)
     // yield();
     int httpCode = http.POST(body);
 
-    Serial.println("[NOTIFICACION] Estatus code de la respuesta a la notificacion: ");
-    Serial.print(String(httpCode));
+    Serial.print("[NOTIFICACION] Estatus code de la respuesta a la notificacion: ");
+    Serial.println(String(httpCode));
+    String payload = http.getString();
+    Serial.println(payload);
     http.end();
     // processResponse(httpCode, http);
   }
@@ -1492,6 +1506,8 @@ void sendNotification(String message)
 /// Publicar temperatura
 void pushTemperature(float temp)
 {
+  if (std::isnan(temp)) return;
+
   DynamicJsonDocument payload(512);
   payload["id"] = id;
   payload["user"] = userId;
@@ -1500,12 +1516,11 @@ void pushTemperature(float temp)
 
   ArduinoJWT jwt = ArduinoJWT(KEY);
   String token = jwt.encodeJWT(tokenEncoded);
-  Serial.println("[TEMPERATURA] Publicando temperatura ");
-  Serial.print(String(temp));
   yield();
-  Serial.println("Free heap> ");
-  Serial.println(ESP.getFreeHeap());
+  logMemory();
   yield();
+  Serial.print("[TEMPERATURA] Publicando temperatura ");
+  Serial.println(String(temp));
   if (standalone)
   {
     HTTPClient http;
@@ -1649,6 +1664,12 @@ void factoryRestore()
 // Control del compresor
 void controlCompresor()
 {
+  if (fallaElectrica()){
+    compressor = false;
+    digitalWrite(COMPRESOR, LOW);
+    return;
+  }
+
   if (temperature > temperaturaDeseada)
   {
     if ((millis() - tiempoAnterior >= tiempoEspera))
@@ -1798,6 +1819,7 @@ void shouldPushTempNotification()
 void displayTemperature(float temp)
 {
 
+  if (std::isnan(temp)) return;
   display.clearDisplay();
   // display.display();
 
@@ -1813,41 +1835,51 @@ void displayTemperature(float temp)
   display.print(temp, 1);
   display.print((char)247);
   display.display();
-  // display.clearDisplay();
-  // display.display();
+}
 
-  // String tempDText = "Temp. deseada: " + String(temperaturaDeseada);
+void wifiAPLoop(){
+  /// Normal state => Connected to WiFi and No Electrical Issue
+  if (WiFi.status() == WL_CONNECTED && !fallaElectrica()){
+    /// Disable soft ap
+    if (softApEnabled){
+      Serial.println("[BATTERY] Apagando WiFi AP. Modo ahorro desactivado.");
 
-  // display.setTextSize(1);              // Normal 1:1 pixel scale
-  // display.setTextColor(SSD1306_WHITE); // Draw white text
-  // display.setCursor(0, 0);             // Start at top-left corner
-  // display.print(F("Temp. deseada: "));
+      WiFi.softAPdisconnect(true);
+      softApEnabled = false;
+    }
+  }else {
+    /// Enable soft ap
+    if (!softApEnabled){
+      Serial.println("[BATTERY] Iniciando WiFi AP. Modo ahorro activado.");
+      startWiFiAP();
+      softApEnabled = true;
+    }
 
-  // display.setTextColor(SSD1306_WHITE); // Draw 'inverse' text
-  // display.print(temperaturaDeseada);
-  // display.print((char)247);
-  // // display.setTextSize(2);             // Draw 2X-scale text
-  // // display.setTextColor(SSD1306_WHITE);
-  // // display.print(F("°C"));
-  // // display.println(0xDEADBEEF, HEX);
-
-  // dintisplay.setCursor(28, 27);
-  // display.setTextSize(3);
-  // display.(temp, 1);
-  // display.print((char)247);
-  // display.display();
-
-  // delay(2000);
+  }
 }
 
 bool fallaElectrica(){
   bool batteryOn = false;
   if(digitalRead(ELECTRICIDAD)){
-  batteryOn = false;
-//   Serial.println("Ok"); 
+    /// Normal
+    batteryOn = false;
+    /// Disable soft ap
+    if (softApEnabled){
+      Serial.println("[BATTERY] Apagando WiFi AP. Modo ahorro desactivado.");
+
+      WiFi.softAPdisconnect(true);
+      softApEnabled = false;
+    }
   }else{
-  batteryOn = true; 
-//   Serial.println("....................................SE ESTA USANDO LA BATERIA DE RESPALDO..............................."); 
+    /// Emergency mode
+    batteryOn = true; 
+    if (!softApEnabled){
+      Serial.println("[BATTERY] Iniciando WiFi AP. Modo ahorro activado.");
+      startWiFiAP();
+      softApEnabled = true;
+    }
+
+
   }
   return batteryOn;
 }
