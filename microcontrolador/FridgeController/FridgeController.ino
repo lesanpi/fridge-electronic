@@ -1,5 +1,6 @@
 #include <ArduinoJson.h>
 #include <ESP8266WiFi.h>
+#include <ESP8266Ping.h>
 #include "uMQTTBroker.h"
 #include "StreamUtils.h"
 #include "DHT.h"
@@ -166,12 +167,18 @@ void setState()
   state["ssidCoordinator"] = ssidCoordinator;
   state["ssidInternet"] = ssidInternet;
   state["isConnectedToWifi"] = WiFi.status() == WL_CONNECTED;
+  state["internet"] = internetConnected();
   state["battery"] = fallaElectrica();
   // Serial.println("[JSON DEBUG][STATE] erflowed: " + String(state.overflowed()));
   // Serial.println("[JSON DEBUG][STATE] Is memoryUsage: " + String(state.memoryUsage()));
   // Serial.println("[JSON DEBUG][STATE] Is siIs ovze: " + String(state.size()));
 }
 
+
+bool internetConnected(){
+  bool ret = Ping.ping("www.google.com");
+  return ret;
+}
 
 //========================================== sensors
 //==========================================
@@ -1709,6 +1716,8 @@ void setTemperature(int newTemperaturaDeseada)
     Serial.println("Temperatura deseada cambiada");
     setMemoryData();
   }
+  float temperatureRead = dht.readTemperature();
+  displayTemperature(temperatureRead);
 }
 
 void controlBotones()
@@ -1819,7 +1828,6 @@ void shouldPushTempNotification()
 void displayTemperature(float temp)
 {
 
-  if (std::isnan(temp)) return;
   display.clearDisplay();
   // display.display();
 
@@ -1832,14 +1840,25 @@ void displayTemperature(float temp)
   display.println("---------------------");
   display.setCursor(28, 27);
   display.setTextSize(3);
-  display.print(temp, 1);
+  if (std::isnan(temp)){
+    display.print(temperature, 1);
+  }else {
+    display.print(temp, 1);
+  }
   display.print((char)247);
   display.display();
 }
 
 void wifiAPLoop(){
   /// Normal state => Connected to WiFi and No Electrical Issue
-  if (WiFi.status() == WL_CONNECTED && !fallaElectrica()){
+  // TODO: Add no internet
+
+  /// Puede haber un UPS, por lo tanto puedo estar conectado a internet pero
+  /// tener una falla electrica al mismo tiempo
+
+  /// Puedo estar conectado al WiFi, pero no tener internet
+  /// Por lo tanto requiere un wifi local para poder comunicarse
+  if (WiFi.status() == WL_CONNECTED && !fallaElectrica() && internetConnected()){
     /// Disable soft ap
     if (softApEnabled){
       Serial.println("[BATTERY] Apagando WiFi AP. Modo ahorro desactivado.");
