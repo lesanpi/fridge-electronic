@@ -183,7 +183,7 @@ bool internetConnected(){
 //========================================== sensors
 //==========================================
 DHT dht(DHTPin, DHTTYPE);
-const long updateTempInterval = 1000 * 60 * 1;
+const long updateTempInterval = 1000 * 60 * 5;
 unsigned long previousTemperaturePushMillis = 0;
 
 //========================================== timers
@@ -388,12 +388,11 @@ public:
         onAction(json);
       }
       // EJECUTAR LAS ACCIONES
-      json.clear();
+      // json.clear();
     }
-    setState();
-    publishState();
 
-    // yield();
+    // publishState();
+
     // printClients();
   }
 
@@ -535,14 +534,63 @@ void publishInformation()
   information.clear();
 }
 
-void publishError()
+
+
+void publishErrorMessage(String title, String message)
 {
-  // String errorEncoded = jsonToString(error);
+  DynamicJsonDocument errorMessage(state_capacity); 
+  errorMessage["title"] = title;
+  errorMessage["message"] = message;
+  String errorMessageEncoded = jsonToString(errorMessage);
+
+
   if (standalone)
   {
-    // Publish on Standalone Mode
-    Serial.println("Publicando error:");
-    myBroker.publish("error", "Error");
+   
+    if (userLocalConnected || myBroker.getClientCount() > 0)
+    {
+      myBroker.publish("error/" + id, errorMessageEncoded);
+      return;
+    }
+    if (cloudClient.connected())
+    {
+      if (cloudClient.publish((("error/" + id)).c_str(), errorMessageEncoded.c_str(), true))
+      {
+        Serial.print("... publicado mensaje de error\n");
+      }
+
+    }
+  }
+  else
+  {
+    // TODO: Publish on Coordinator Mode
+  }
+}
+
+void publishMessage(String title, String message)
+{
+  DynamicJsonDocument jsonMessage(state_capacity); 
+  jsonMessage["title"] = title;
+  jsonMessage["message"] = message;
+  String messageEncoded = jsonToString(jsonMessage);
+
+
+  if (standalone)
+  {
+   
+    if (userLocalConnected || myBroker.getClientCount() > 0)
+    {
+      myBroker.publish("message/" + id, messageEncoded);
+      return;
+    }
+    if (cloudClient.connected())
+    {
+      if (cloudClient.publish((("message/" + id)).c_str(), messageEncoded.c_str(), true))
+      {
+        Serial.print("... publicado mensaje\n");
+      }
+
+    }
   }
   else
   {
@@ -959,7 +1007,9 @@ void loop()
           tiempo1LecturaFallaElectrica = intervaloFallaElectrica;
         }
         Serial.println("[ELECTRICIDAD] Falla electrica... Enviando notificacion");
-        sendNotification("Ha ocurrido una falla electrica, se esta usando la bateria de respaldo");
+        sendNotification("Ha ocurrido una falla eléctrica, se esta usando la bateria de respaldo");
+        String title = "Error ocurrido en " + name;
+        publishErrorMessage(title, "Ha ocurrido una falla eléctrica");
       }
     
     }
@@ -1207,7 +1257,7 @@ void onAction(JsonObject json)
 
   if (action.equals("setInternet"))
   {
-    Serial.println("Cambiar a modo coordinado");
+    Serial.println("Cambiar punto de acceso con internet");
     String _newSsidInternet = json["ssid"];
     String _newPasswordInternet = json["password"];
     setInternet(_newSsidInternet, _newPasswordInternet);
@@ -1247,6 +1297,21 @@ void readTemperature()
 void toggleLight()
 {
   light = !light;
+  String title = "Mensaje de " + name;
+  if (light){
+    publishMessage(
+      title,
+      "Se ha encendido la luz del equipo"
+    );
+  }else {
+    publishMessage(
+      title,
+      "Se ha apagado la luz del equipo"
+    );
+  }
+  publishState();
+
+
   lightLoop();
 }
 
@@ -1256,11 +1321,13 @@ void lightLoop()
   {
     digitalWrite(LIGHT, HIGH); // envia señal alta al relay
     // Serial.println("Enciende la luz");
+    
   }
   else
   {
     digitalWrite(LIGHT, LOW); // envia señal alta al relay
     // Serial.println("Apaga la luz");
+    
   }
 }
 
@@ -1274,10 +1341,17 @@ void setMaxTemperature(int newMaxTemperature)
     maxTemperature = newMaxTemperature;
 
     setMemoryData();
+    String title = "Mensaje de " + name;
+    publishMessage(
+      title,
+      "Se ha cambiado la temperatura máxima de alerta con éxito"
+    );
   }
   else
   {
-    sendError("Limite de temperatura maxima inválida");
+    String title = "Error ocurrido en " + name;
+    publishErrorMessage(title, "Limite de temperatura maxima inválida");
+    sendError("Limite de temperatura máxima inválida");
   }
 }
 
@@ -1292,10 +1366,17 @@ void setMinTemperature(int newMinTemperature)
     minTemperature = newMinTemperature;
 
     setMemoryData();
+    String title = "Mensaje de " + name;
+    publishMessage(
+      title,
+      "Se ha cambiado la temperatura mínima de alerta con éxito"
+    );
   }
   else
   {
     sendError("Limite de temperatura minima inválida");
+    String title = "Error ocurrido en " + name;
+    publishErrorMessage(title, "Limite de temperatura mínima inválida");
   }
 }
 
@@ -1306,6 +1387,11 @@ void changeName(String newName)
   Serial.print(newName);
   name = newName;
 
+  String title = "Mensaje de " + name;
+  publishMessage(
+    title,
+    "Se ha cambiado el nombre del dispositivo con éxito"
+  );
   setMemoryData();
 }
 
@@ -1377,6 +1463,11 @@ void setInternet(String newSsidInternet, String newPasswordInternet)
     passwordInternet = newPasswordInternet;
     // standalone = false;
     setMemoryData();
+    String title = "Mensaje de " + name;
+    publishMessage(
+      title,
+      "Se ha cambiado el punto de acceso con internet con éxito"
+    );
     if (standalone)
     {
       startInternetClient();
@@ -1406,6 +1497,12 @@ void configureDevice(
     int _minTemperature)
 {
 
+  if (!_password.equals("") && !_password.equals("null"))
+  {
+    password = _password;
+  }else {
+    return;
+  }
   // id = _id;
   userId = _userId;
   // configurationMode = false;
@@ -1414,6 +1511,8 @@ void configureDevice(
   maxTemperature = _maxTemperature;
   minTemperature = _minTemperature;
   ssid = _ssid;
+
+
   if (!coordinatorSsid.equals("") && !coordinatorSsid.equals("null"))
   {
     ssidCoordinator = coordinatorSsid;
@@ -1609,7 +1708,7 @@ bool crearNevera(String userId)
         return true;
       }
       http.end();
-
+      
       return false;
     }
     else
@@ -1715,9 +1814,16 @@ void setTemperature(int newTemperaturaDeseada)
     temperaturaDeseada = newTemperaturaDeseada;
     Serial.println("Temperatura deseada cambiada");
     setMemoryData();
+    // String title = "Mensaje de " + name;
+    // String message = "Se ha cambiado la temperatura referencial con éxito";
+    // publishMessage(
+    //   title,
+    //   "Se ha cambiado la temperatura referencial con éxito"
+    // );
+    Serial.println("Temperatura cambiada con exito");
   }
-  float temperatureRead = dht.readTemperature();
-  displayTemperature(temperatureRead);
+
+  // displayTemperature(temperature);
 }
 
 void controlBotones()
@@ -1796,6 +1902,8 @@ void shouldPushTempNotification()
       Serial.println("[NOTIFICACION] Notificando temperatura máxima alcanzada");
       previousTemperatureNoticationMillis = millis();
       sendNotification("Se ha alcanzado la temperatura máxima.");
+      String title = "Error ocurrido en " + name;
+      publishErrorMessage(title, "Se ha alcanzado la temperatura máxima.");
     }
     else
     {
@@ -1815,6 +1923,8 @@ void shouldPushTempNotification()
         Serial.println("[NOTIFICACION] Notificando temperatura minima alcanzada");
         previousTemperatureNoticationMillis = millis();
         sendNotification("Se ha alcanzado la temperatura mínima.");
+        String title = "Error ocurrido en " + name;
+        publishErrorMessage(title, "Se ha alcanzado la temperatura mínima.");
       }
     }
   }
@@ -1883,20 +1993,20 @@ bool fallaElectrica(){
     /// Normal
     batteryOn = false;
     /// Disable soft ap
-    if (softApEnabled){
-      Serial.println("[BATTERY] Apagando WiFi AP. Modo ahorro desactivado.");
+    // if (softApEnabled){
+    //   Serial.println("[BATTERY] Apagando WiFi AP. Modo ahorro desactivado.");
 
-      WiFi.softAPdisconnect(true);
-      softApEnabled = false;
-    }
+    //   WiFi.softAPdisconnect(true);
+    //   softApEnabled = false;
+    // }
   }else{
     /// Emergency mode
     batteryOn = true; 
-    if (!softApEnabled){
-      Serial.println("[BATTERY] Iniciando WiFi AP. Modo ahorro activado.");
-      startWiFiAP();
-      softApEnabled = true;
-    }
+    // if (!softApEnabled){
+    //   Serial.println("[BATTERY] Iniciando WiFi AP. Modo ahorro activado.");
+    //   startWiFiAP();
+    //   softApEnabled = true;
+    // }
 
 
   }
