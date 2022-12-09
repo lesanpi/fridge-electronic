@@ -42,8 +42,8 @@ uint8_t DHTPin = D3; /// DHT1
 
 
 
-String API_HOST = "https://zona-refri-api.herokuapp.com";
-// String API_HOST = "http://192.168.1.102:3001";
+// String API_HOST = "https://zona-refri-api.herokuapp.com";
+String API_HOST = "https://zona-refri.onrender.com";
 
 //========================================== jwt
 //==========================================
@@ -358,12 +358,39 @@ public:
   virtual bool onAuth(String username, String password, String client_id)
   {
     Serial.println("[LOCAL BROKER][AUTH] Username/Password/ClientId: " + username + "/" + password + "/" + client_id);
-    notifyInformation = true;
+    Serial.println("Dueño Id: " + userId);
+    // return true;
+    if (configurationMode){
+      if (getClientCount() > 1){
 
-    publishInformation();
-    userLocalConnected = true;
+        Serial.println("[LOCAL BROKER][AUTH] Modo configuracion con usuario ya activo, rechazando ingreso");
+       return false;
+      }
 
-    return true;
+      Serial.println("[LOCAL BROKER][AUTH] Modo configuracion permitiendo ingreso");
+
+      notifyInformation = true;
+      publishInformation();
+      userLocalConnected = true;
+      return true;
+    }
+
+    // ArduinoJWT jwt = ArduinoJWT(KEY);
+    // jwt.decodeJWT(password);
+    Serial.println("[LOCAL BROKER][AUTH] Verificando usuario");
+    Serial.println(userId.equals(client_id));
+    if (userId.equals(client_id)){
+      Serial.println("[LOCAL BROKER][AUTH] Ingreso valido");
+
+      notifyInformation = true;
+      publishInformation();
+      userLocalConnected = true;
+      return true;
+    }
+
+    Serial.println("[LOCAL BROKER][AUTH] Ingreso invalido");
+
+    return false;
   }
 
   virtual void onData(String topic, const char *data, uint32_t length)
