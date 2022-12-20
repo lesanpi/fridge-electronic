@@ -2,7 +2,9 @@
 #include <ESP8266WiFi.h>
 #include "uMQTTBroker.h"
 #include "StreamUtils.h"
-#include "DHT.h"
+#include <OneWire.h>
+#include <DallasTemperature.h>
+// #include "DHT.h"
 #include "EspMQTTClient.h"
 #include <ArduinoJWT.h>
 #include <PubSubClient.h>
@@ -12,6 +14,7 @@
 #include <Wire.h>
 #include <Adafruit_GFX.h>
 #include <Adafruit_SSD1306.h>
+
 
 //========================================== display
 //==========================================
@@ -27,12 +30,13 @@ Adafruit_SSD1306 display(SCREEN_WIDTH, SCREEN_HEIGHT, &Wire, OLED_RESET);
 
 
 #define KEY "secretphrase"
-#define DHTTYPE DHT11 // DHT 11
+// #define DHTTYPE DHT11 // DHT 11
 
 
-#define FACTORYREST D0
+// #define FACTORYREST D0
 //D1 Y D2 PANTALLA
-uint8_t DHTPin = D3; /// DHT1
+// uint8_t DHTPin = D3; /// DHT1
+#define ONE_WIRE_BUS D3 //Sensor de temperatura
 #define COMPRESOR D4
 #define ELECTRICIDAD D5
 #define BAJARTEMP D6
@@ -40,7 +44,10 @@ uint8_t DHTPin = D3; /// DHT1
 #define LIGHT D8
 // #define CONFIGURATION_MODE_OUTPUT D8
 
-
+OneWire oneWire(ONE_WIRE_BUS);  
+ 
+// Pass oneWire reference to DallasTemperature library
+DallasTemperature sensors(&oneWire);
 
 String API_HOST = "https://zona-refri-api.herokuapp.com";
 // String API_HOST = "http://192.168.1.102:3001";
@@ -841,6 +848,9 @@ void setup()
   /// Memory
   EEPROM.begin(1024);
 
+  
+  
+
   // SSD1306_SWITCHCAPVCC = generate display voltage from 3.3V internally
   if (!display.begin(SSD1306_SWITCHCAPVCC, 0x3C))
   { // Address 0x3D for 128x64
@@ -866,11 +876,11 @@ void setup()
 
   /// Configuration mode light output
   // pinMode(CONFIGURATION_MODE_OUTPUT, OUTPUT);
+  // pinMode(FACTORYREST, INPUT);
   pinMode(LIGHT, OUTPUT);
   pinMode(COMPRESOR, OUTPUT);
   pinMode(BAJARTEMP, INPUT);
   pinMode(SUBIRTEMP, INPUT);
-  pinMode(FACTORYREST, INPUT);
   pinMode(ELECTRICIDAD, INPUT);
 
   /// Setup WiFi
@@ -886,7 +896,10 @@ void setup()
   digitalWrite(LIGHT, LOW);
 
   /// Dht Begin
-  dht.begin();
+  // dht.begin();
+
+  //DS18B20 Begin
+  sensors.begin();
 }
 
 //================================================ loop
@@ -928,6 +941,7 @@ void loop()
 {
 
   lightLoop();
+  displayOled(offline,fallaElectrica());
 
   if(fallaElectrica()){
     tiempo2LecturaFallaElectrica = millis();
@@ -1206,8 +1220,10 @@ void onAction(JsonObject json)
 /// Lectura de temperatura a través del sensor.
 void readTemperature()
 {
-  float temperatureRead = dht.readTemperature();
-  displayTemperature(temperatureRead);
+  sensors.requestTemperatures(); 
+  float temperatureRead = sensors.getTempCByIndex(0);
+  // float temperatureRead = dht.readTemperature();
+  // displayTemperature(temperatureRead);
   if (int(temperatureRead) != temperature)
   {
     temperature = int(temperatureRead);
@@ -1814,49 +1830,46 @@ void shouldPushTempNotification()
 //===================================
 
 /// Display temperature
-void displayTemperature(float temp)
+void displayOled(bool offline, bool fallaElectrica)
 {
-
+  if(configurationMode){             //[MODO CONFIGURACION]
   display.clearDisplay();
-  // display.display();
-
+//  display.setCursor(0,0);
   display.setTextSize(1);
-  String tempDText = "Temp. deseada: " + String(temperaturaDeseada);
-
   display.setTextColor(SSD1306_WHITE);
-  display.setCursor(0, 0);
-  display.println(tempDText);
-  display.println("---------------------");
-  display.setCursor(28, 27);
+//  display.println("Start");
+//  display.display();
+//  delay(2000);
+  display.setCursor(9,27);
+  display.print("Esperando \n configuracion...");
+  }else 
+  {             //[NORMAL]
+  display.clearDisplay();
+//  display.setCursor(0,0);
   display.setTextSize(3);
-  display.print(temp, 1);
-  display.print((char)247);
-  display.display();
-  // display.clearDisplay();
-  // display.display();
-
-  // String tempDText = "Temp. deseada: " + String(temperaturaDeseada);
-
-  // display.setTextSize(1);              // Normal 1:1 pixel scale
-  // display.setTextColor(SSD1306_WHITE); // Draw white text
-  // display.setCursor(0, 0);             // Start at top-left corner
-  // display.print(F("Temp. deseada: "));
-
-  // display.setTextColor(SSD1306_WHITE); // Draw 'inverse' text
-  // display.print(temperaturaDeseada);
-  // display.print((char)247);
-  // // display.setTextSize(2);             // Draw 2X-scale text
-  // // display.setTextColor(SSD1306_WHITE);
-  // // display.print(F("°C"));
-  // // display.println(0xDEADBEEF, HEX);
-
-  // dintisplay.setCursor(28, 27);
-  // display.setTextSize(3);
-  // display.(temp, 1);
-  // display.print((char)247);
-  // display.display();
-
-  // delay(2000);
+  display.setTextColor(SSD1306_WHITE);
+//  display.println("Start");
+//  display.display();
+//  delay(2000);
+  display.setCursor(15,27);
+  display.print(temperature);
+  display.print(" C");
+  display.setTextSize(1);
+  display.setCursor(0,55);
+  if(!fallaElectrica || !offline){
+      display.print("T. deseada: ");
+      display.print(temperature);
+      display.print(" C");
+    }else{
+      if(fallaElectrica){
+        display.print("Modo ahorro: Falla electrica");   
+      }else if(offline){
+        display.print("Acceso local: Sin internet");  
+      }
+       
+    }
+  }
+   display.display();
 }
 
 bool fallaElectrica(){
@@ -1869,4 +1882,15 @@ bool fallaElectrica(){
 //   Serial.println("....................................SE ESTA USANDO LA BATERIA DE RESPALDO..............................."); 
   }
   return batteryOn;
+}
+
+bool offline(){ ///TODO: Funcion que pruebe que esta conectado a internet
+bool offline = false;
+  ///Prueba ping si hay internet
+  if (WiFi.status() != WL_CONNECTED){ //no estoy seguro si esta correcto
+    offline = true;
+  }else{
+    offline = false;
+  }
+      return offline;
 }
