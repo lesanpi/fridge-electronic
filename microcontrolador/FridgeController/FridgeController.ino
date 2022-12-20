@@ -64,6 +64,7 @@ int maxTemperature = 20;    // Parametro temperatura minima permitida.
 int minTemperature = -10;   // Parametro temperatura maxima permitida.
 int temperaturaDeseada = 4; // Parametro temperatura recibida por el usuario.
 bool softApEnabled = false;
+bool internetConnectionOk = true;
 // Para almacenar el tiempo en milisegundos.
 unsigned long tiempoAnterior = 0;
 // 7 minutos de espera de tiempo prudencial para volver a encender el compresor.
@@ -87,7 +88,6 @@ unsigned long intervaloFallaElectrica = 1000 * 60 * 5;
 //==========================================
 const size_t capacity = 1024;
 const size_t state_capacity = 360;
-DynamicJsonDocument state(state_capacity);       // State, sensors, outputs...
 
 /// Returns the JSON converted to String
 String jsonToString(DynamicJsonDocument json)
@@ -152,23 +152,23 @@ EspMQTTClient localClient(
 /// Initilize or update the JSON State of the Fridge.
 void setState()
 {
-  state["id"] = id;
+  // state["id"] = id;
   // state["userId"] = userId;
-  state["name"] = name;
-  state["temperature"] = temperature;
-  state["light"] = light;
-  state["compressor"] = compressor;
-  state["door"] = door;
-  state["desiredTemperature"] = temperaturaDeseada;
-  state["maxTemperature"] = maxTemperature;
-  state["minTemperature"] = minTemperature;
-  state["standalone"] = standalone;
-  state["ssid"] = ssid;
-  state["ssidCoordinator"] = ssidCoordinator;
-  state["ssidInternet"] = ssidInternet;
-  state["isConnectedToWifi"] = WiFi.status() == WL_CONNECTED;
-  state["internet"] = internetConnected();
-  state["battery"] = fallaElectrica();
+  // state["name"] = name;
+  // state["temperature"] = temperature;
+  // state["light"] = light;
+  // state["compressor"] = compressor;
+  // state["door"] = door;
+  // state["desiredTemperature"] = temperaturaDeseada;
+  // state["maxTemperature"] = maxTemperature;
+  // state["minTemperature"] = minTemperature;
+  // state["standalone"] = standalone;
+  // state["ssid"] = ssid;
+  // state["ssidCoordinator"] = ssidCoordinator;
+  // state["ssidInternet"] = ssidInternet;
+  // state["isConnectedToWifi"] = WiFi.status() == WL_CONNECTED;
+  // state["internet"] = internetConnected();
+  // state["battery"] = fallaElectrica();
   // Serial.println("[JSON DEBUG][STATE] erflowed: " + String(state.overflowed()));
   // Serial.println("[JSON DEBUG][STATE] Is memoryUsage: " + String(state.memoryUsage()));
   // Serial.println("[JSON DEBUG][STATE] Is siIs ovze: " + String(state.size()));
@@ -176,7 +176,7 @@ void setState()
 
 
 bool internetConnected(){
-  bool ret = Ping.ping("www.google.com");
+  bool ret = Ping.ping("www.google.com", 1);
   return ret;
 }
 
@@ -199,6 +199,10 @@ const long retryWifiConnectionInterval = 1000 * 60 * 3;
 unsigned long previousRetryWifiConnection = 0;
 
 unsigned long debugMemoryTime;
+
+
+const long intervalInternet = 1000 * 60 * 2;
+unsigned long previousInternetRevision = 0;
 
 //========================================== memoria
 //==========================================
@@ -449,7 +453,26 @@ FridgeMQTTBroker myBroker;
 /// publish the state in the correct topic according if the fridge is working on standole mode or not.
 void publishState()
 {
-  setState();
+  // setState();
+  DynamicJsonDocument state(state_capacity);       // State, sensors, outputs...
+  state["id"] = id;
+  // state["userId"] = userId;
+  state["name"] = name;
+  state["temperature"] = temperature;
+  state["light"] = light;
+  state["compressor"] = compressor;
+  state["door"] = door;
+  state["desiredTemperature"] = temperaturaDeseada;
+  state["maxTemperature"] = maxTemperature;
+  state["minTemperature"] = minTemperature;
+  state["standalone"] = standalone;
+  state["ssid"] = ssid;
+  state["ssidCoordinator"] = ssidCoordinator;
+  state["ssidInternet"] = ssidInternet;
+  state["isConnectedToWifi"] = WiFi.status() == WL_CONNECTED;
+  // state["internet"] = internetConnected();
+  state["internet"] = internetConnectionOk;
+  state["battery"] = fallaElectrica();
   String stateEncoded = jsonToString(state);
   Serial.println("[PUBLISH] Publicando estado: " + stateEncoded);
   // setState();
@@ -491,6 +514,26 @@ void publishState()
 void publishStateLocalBroker()
 {
   setState();
+  DynamicJsonDocument state(state_capacity);       // State, sensors, outputs...
+  state["id"] = id;
+  // state["userId"] = userId;
+  state["name"] = name;
+  state["temperature"] = temperature;
+  state["light"] = light;
+  state["compressor"] = compressor;
+  state["door"] = door;
+  state["desiredTemperature"] = temperaturaDeseada;
+  state["maxTemperature"] = maxTemperature;
+  state["minTemperature"] = minTemperature;
+  state["standalone"] = standalone;
+  state["ssid"] = ssid;
+  state["ssidCoordinator"] = ssidCoordinator;
+  state["ssidInternet"] = ssidInternet;
+  state["isConnectedToWifi"] = WiFi.status() == WL_CONNECTED;
+  // state["internet"] = internetConnected();
+  state["internet"] = internetConnectionOk;
+
+  state["battery"] = fallaElectrica();
   String stateEncoded = jsonToString(state);
   // Serial.println("[PUBLISH][LOCAL BROKER] Publicando estado: " + stateEncoded);
   myBroker.publish("state/" + id, stateEncoded);
@@ -500,6 +543,26 @@ void publishStateLocalBroker()
 void publishStateLocalCoordinator()
 {
   setState();
+  DynamicJsonDocument state(state_capacity);       // State, sensors, outputs...
+  state["id"] = id;
+  // state["userId"] = userId;
+  state["name"] = name;
+  state["temperature"] = temperature;
+  state["light"] = light;
+  state["compressor"] = compressor;
+  state["door"] = door;
+  state["desiredTemperature"] = temperaturaDeseada;
+  state["maxTemperature"] = maxTemperature;
+  state["minTemperature"] = minTemperature;
+  state["standalone"] = standalone;
+  state["ssid"] = ssid;
+  state["ssidCoordinator"] = ssidCoordinator;
+  state["ssidInternet"] = ssidInternet;
+  state["isConnectedToWifi"] = WiFi.status() == WL_CONNECTED;
+  // state["internet"] = internetConnected();
+  state["internet"] = internetConnectionOk;
+
+  state["battery"] = fallaElectrica();
   String stateEncoded = jsonToString(state);
   // Serial.print("[PUBLISH][LOCAL COORDINATOR] Publicando estado: " + stateEncoded);
   // if (coordinatorClient.connected())
@@ -523,13 +586,42 @@ void publishStateLocalCoordinator()
 
 void publishStateCloud()
 {
+  // Serial.print("[time#0.6.3.1] time: ");
+  // Serial.print(millis());
+  // Serial.println();
   setState();
+  DynamicJsonDocument state(state_capacity);       // State, sensors, outputs...
+  state["id"] = id;
+  // state["userId"] = userId;
+  state["name"] = name;
+  state["temperature"] = temperature;
+  state["light"] = light;
+  state["compressor"] = compressor;
+  state["door"] = door;
+  state["desiredTemperature"] = temperaturaDeseada;
+  state["maxTemperature"] = maxTemperature;
+  state["minTemperature"] = minTemperature;
+  state["standalone"] = standalone;
+  state["ssid"] = ssid;
+  state["ssidCoordinator"] = ssidCoordinator;
+  state["ssidInternet"] = ssidInternet;
+  state["isConnectedToWifi"] = WiFi.status() == WL_CONNECTED;
+  // state["internet"] = internetConnected();
+  state["internet"] = internetConnectionOk;
+
+  state["battery"] = fallaElectrica();
+  // Serial.print("[time#0.6.4.1] time: ");
+  // Serial.print(millis());
+  // Serial.println();
   String stateEncoded = jsonToString(state);
   if (cloudClient.connected())
   {
     // Serial.println("[PUBLISH][CLOUD] Publicando estado: " + stateEncoded);
     if (cloudClient.publish((("state/" + id)).c_str(), stateEncoded.c_str(), true))
     {
+      // Serial.print("[time#0.6.4.2] time: ");
+      // Serial.print(millis());
+      // Serial.println();
       // Serial.print("[INTERNET] Estado publicado en: ");
       // Serial.println(String(("state/" + id)).c_str());
     }
@@ -920,21 +1012,25 @@ void setup()
   /// Memory
   EEPROM.begin(1024);
 
+  
+
+  // while (!EEPROM) {}
+  while (!Serial)
+  {
+  }
+
   // SSD1306_SWITCHCAPVCC = generate display voltage from 3.3V internally
   if (!display.begin(SSD1306_SWITCHCAPVCC, 0x3C))
   { // Address 0x3D for 128x64
     Serial.println(F("SSD1306 allocation failed"));
     for (;;)
       ; // Don't proceed, loop forever
+  }else{
+    Serial.println("[Display] OK");
   }
 
   display.clearDisplay();
   display.display();
-
-  // while (!EEPROM) {}
-  while (!Serial)
-  {
-  }
 
   // Clear the buffer
   display.clearDisplay();
@@ -972,15 +1068,36 @@ void setup()
 //================================================ loop
 //================================================
 
+void verifyInternetConnection(){
+  boolean canPublish = millis() - previousInternetRevision >= intervalInternet;
+  if (canPublish){
+    previousInternetRevision = millis();
+    internetConnectionOk = internetConnected();
+    Serial.print("[Internet] Connected: ");
+    Serial.println(internetConnectionOk);
+  }
+}
+
 void shouldPublish()
 {
   // Publish info
+  /// Control de botontes
+  // controlBotones();
+  // Serial.print("[shouldPublish] time: ");
+  // Serial.print(millis());
+  // Serial.println();
+  // Serial.print("[time#0.6.1] time: ");
+  // Serial.print(millis());
+  // Serial.println();
   boolean canPublish = millis() - previousNotifyInformation >= notifyInformationInterval;
   if (canPublish)
   {
-    // Serial.println("[PUBLISH INFORMATION]");
+    // Serial.println("[PUBLISH]");
     previousNotifyInformation = millis();
     publishInformation();
+    // Serial.print("[time#0.6.2] time: ");
+    // Serial.print(millis());
+    // Serial.println();
     if (!configurationMode)
     {
     
@@ -996,9 +1113,16 @@ void shouldPublish()
       }
       else
       {
+        // Serial.print("[time#0.6.3] time: ");
+        // Serial.print(millis());
+        // Serial.println();
         if (softApEnabled) return;
         publishStateCloud();
       }
+
+      // Serial.print("[time#0.6.4] time: ");
+      // Serial.print(millis());
+      // Serial.println();
       
     }
   }
@@ -1017,15 +1141,71 @@ void logMemory(){
 void loop()
 {
 
+  // Serial.print("[time#0] time: ");
+  // Serial.print(millis());
+  // Serial.println();
   logMemory();
 
+  // Serial.print("[time#0.1] time: ");
+  // Serial.print(millis());
+  // Serial.println();
   if (!configurationMode)
   {
 
     lightLoop();
 
+    // Serial.print("[time#0.2] time: ");
+    // Serial.print(millis());
+    // Serial.println();
+
     wifiAPLoop();
 
+    // Serial.print("[time#0.3] time: ");
+    // Serial.print(millis());
+    // Serial.println();
+
+
+    // Se obtienen los datos de la temperatura
+    readTemperature();
+
+    // Serial.print("[time#0.4] time: ");
+    // Serial.print(millis());
+    // Serial.println();
+
+    // Controlo el compresor
+    controlCompresor();
+
+    // Serial.print("[time#0.5] time: ");
+    // Serial.print(millis());
+    // Serial.println();
+
+    /// Control de botontes
+    controlBotones();
+
+    // Serial.print("[time#0.6] time: ");
+    // Serial.print(millis());
+    // Serial.println();
+
+    /// verificando si deberia publicar datos
+    shouldPublish();
+
+    // Serial.print("[time#0.7] time: ");
+    // Serial.print(millis());
+    // Serial.println();
+
+    /// verifyInternet
+    verifyInternetConnection();
+
+    // Serial.print("[time#0.8] time: ");
+    // Serial.print(millis());
+    // Serial.println();
+
+    /// verificando si deberia publicar datos
+    // shouldPublish();
+
+    // Serial.print("[time#1] time: ");
+    // Serial.print(millis());
+    // Serial.println();
     if(fallaElectrica()){
       tiempo2LecturaFallaElectrica = millis();
       if(tiempo2LecturaFallaElectrica > tiempo1LecturaFallaElectrica + intervaloFallaElectrica || tiempo1LecturaFallaElectrica < intervaloFallaElectrica){
@@ -1041,99 +1221,103 @@ void loop()
     
     }
 
+    // Serial.print("[time#0.9] time: ");
+    // Serial.print(millis());
+    // Serial.println();
 
-    if (retryCoordinatorConnection)
-    {
-      boolean canReconnection = millis() - previousRetryWifiConnection >= retryWifiConnectionInterval;
-      if (canReconnection)
-      {
-        previousRetryWifiConnection = millis();
+    // if (retryCoordinatorConnection)
+    // {
+    //   boolean canReconnection = millis() - previousRetryWifiConnection >= retryWifiConnectionInterval;
+    //   if (canReconnection)
+    //   {
+    //     previousRetryWifiConnection = millis();
 
-        Serial.println("\n[LOCAL] Conectandose al Wifi del Coordinador y al servidor MQTT...");
-        bool connected = startWiFiClient();
-        if (!connected)
-        {
-          Serial.println("[LOCAL] No se pudo conectase al coordinador, iniciando indepente...");
-          startWiFiAP();
-          startInternetClient();
-        }
-      }
-    }
+    //     Serial.println("\n[LOCAL] Conectandose al Wifi del Coordinador y al servidor MQTT...");
+    //     bool connected = startWiFiClient();
+    //     if (!connected)
+    //     {
+    //       Serial.println("[LOCAL] No se pudo conectase al coordinador, iniciando indepente...");
+    //       startWiFiAP();
+    //       startInternetClient();
+    //     }
+    //   }
+    // }
 
-    /// Reintentar conexion al WiFi
-    if (WiFi.status() != WL_CONNECTED)
-    {
-      boolean canReconnection = millis() - previousRetryWifiConnection >= retryWifiConnectionInterval;
-      if (standalone)
-      {
-        userLocalConnected = true;
-      }
+    // /// Reintentar conexion al WiFi
+    // if (WiFi.status() != WL_CONNECTED)
+    // {
+    //   boolean canReconnection = millis() - previousRetryWifiConnection >= retryWifiConnectionInterval;
+    //   if (standalone)
+    //   {
+    //     userLocalConnected = true;
+    //   }
 
-      if (canReconnection)
-      {
-        previousRetryWifiConnection = millis();
-        if (standalone)
-        {
-          startInternetClient();
-        }
-        else
-        {
-          startWiFiClient();
-        }
-      }
+    //   if (canReconnection)
+    //   {
+    //     previousRetryWifiConnection = millis();
+    //     if (standalone)
+    //     {
+    //       startInternetClient();
+    //     }
+    //     else
+    //     {
+    //       startWiFiClient();
+    //     }
+    //   }
 
-      // userLocalConnected = WiFi.status() != WL_CONNECTED;
-    }
-    else
-    {
-      // userLocalConnected = false;
-    }
+    //   // userLocalConnected = WiFi.status() != WL_CONNECTED;
+    // }
+    // else
+    // {
+    //   // userLocalConnected = false;
+    // }
 
-    if (retryCoordinatorConnection)
-    {
-      boolean canReconnection = millis() - previousRetryWifiConnection >= retryWifiConnectionInterval;
-      if (canReconnection)
-      {
-        previousRetryWifiConnection = millis();
+    // if (retryCoordinatorConnection)
+    // {
+    //   boolean canReconnection = millis() - previousRetryWifiConnection >= retryWifiConnectionInterval;
+    //   if (canReconnection)
+    //   {
+    //     previousRetryWifiConnection = millis();
 
-        Serial.println("\n[LOCAL] Conectandose al Wifi del Coordinador y al servidor MQTT...");
-        bool connected = startWiFiClient();
-        if (!connected)
-        {
-          Serial.println("[LOCAL] No se pudo conectase al coordinador, iniciando indepente...");
-          startWiFiAP();
-          startInternetClient();
-        }
-      }
-    }
+    //     Serial.println("\n[LOCAL] Conectandose al Wifi del Coordinador y al servidor MQTT...");
+    //     bool connected = startWiFiClient();
+    //     if (!connected)
+    //     {
+    //       Serial.println("[LOCAL] No se pudo conectase al coordinador, iniciando indepente...");
+    //       startWiFiAP();
+    //       startInternetClient();
+    //     }
+    //   }
+    // }
 
+  
     if (!cloudClient.connected() && standalone && !fallaElectrica()){
       reconnectCloud();
     }
+    // Serial.print("[time#3] time: ");
+    // Serial.print(millis());
+    // Serial.println();
     if (cloudClient.connected() && standalone  && !fallaElectrica()){
       cloudClient.loop();
     }
 
-    // Mantener activo el cliente MQTT (Modo Independietne)
-    if (!standalone)
-    {
-      localClient.loop();
-    }
+    // Serial.print("[time#4] time: ");
+    // Serial.print(millis());
+    // Serial.println();
 
-    // Se obtienen los datos de la temperatura
-    readTemperature();
+    // // Mantener activo el cliente MQTT (Modo Independietne)
+    // if (!standalone)
+    // {
+    //   localClient.loop();
+    // }
 
-    // Controlo el compresor
-    controlCompresor();
-
-    /// Control de botontes
-    controlBotones();
-
-    /// verificando si deberia publicar datos
-    shouldPublish();
+    
 
     /// verificando si deberia enviar push notification
     shouldPushTempNotification();
+    // Serial.print("[time#5] time: ");
+    // Serial.print(millis());
+    // Serial.println();
   }
   else
   {
@@ -1298,6 +1482,8 @@ void onAction(JsonObject json)
 void readTemperature()
 {
   float temperatureRead = dht.readTemperature();
+  // Serial.print("[Temperatura] Temperatura: ");
+  // Serial.println(temperatureRead);
   displayTemperature(temperatureRead);
   if (int(temperatureRead) != temperature)
   {
@@ -1369,10 +1555,10 @@ void setMaxTemperature(int newMaxTemperature)
 
     setMemoryData();
     String title = "Mensaje de " + name;
-    publishMessage(
-      title,
-      "Se ha cambiado la temperatura máxima de alerta con éxito"
-    );
+    // publishMessage(
+    //   title,
+    //   "Se ha cambiado la temperatura máxima de alerta con éxito"
+    // );
   }
   else
   {
@@ -1394,10 +1580,10 @@ void setMinTemperature(int newMinTemperature)
 
     setMemoryData();
     String title = "Mensaje de " + name;
-    publishMessage(
-      title,
-      "Se ha cambiado la temperatura mínima de alerta con éxito"
-    );
+    // publishMessage(
+    //   title,
+    //   "Se ha cambiado la temperatura mínima de alerta con éxito"
+    // );
   }
   else
   {
@@ -1415,10 +1601,10 @@ void changeName(String newName)
   name = newName;
 
   String title = "Mensaje de " + name;
-  publishMessage(
-    title,
-    "Se ha cambiado el nombre del dispositivo con éxito"
-  );
+  // publishMessage(
+  //   title,
+  //   "Se ha cambiado el nombre del dispositivo con éxito"
+  // );
   setMemoryData();
 }
 
@@ -1491,10 +1677,10 @@ void setInternet(String newSsidInternet, String newPasswordInternet)
     // standalone = false;
     setMemoryData();
     String title = "Mensaje de " + name;
-    publishMessage(
-      title,
-      "Se ha cambiado el punto de acceso con internet con éxito"
-    );
+    // publishMessage(
+    //   title,
+    //   "Se ha cambiado el punto de acceso con internet con éxito"
+    // );
     if (standalone)
     {
       startInternetClient();
@@ -1856,9 +2042,16 @@ void setTemperature(int newTemperaturaDeseada)
 void controlBotones()
 {
   int temperaturaDeseada2 = temperaturaDeseada;
-
+  // Serial.print("[BOTONES] Control botones time: ");
+  // Serial.print(millis());
+  // Serial.println();
   if (digitalRead(BAJARTEMP))
   {
+    // Serial.print("Boton bajar temp en contacto");
+
+    // temperaturaDeseada2--;
+    // downTempFlag = true;
+    // setTemperature(temperaturaDeseada2);
     if (!downTempFlag)
     {
       temperaturaDeseada2--;
@@ -1873,17 +2066,24 @@ void controlBotones()
 
   if (digitalRead(SUBIRTEMP))
   {
+    // Serial.print("Boton subir temp en contacto");
+    // temperaturaDeseada2++;
+    // upTempFlag = true;
+    // setTemperature(temperaturaDeseada2);
     if (!upTempFlag)
     {
       temperaturaDeseada2++;
       upTempFlag = true;
       setTemperature(temperaturaDeseada2);
+      
     }
   }
   else
   {
     upTempFlag = false;
   }
+  // float temperatureRead = dht.readTemperature();
+  // displayTemperature(temperatureRead);
 
   // if (digitalRead(FACTORYREST))
   // {
@@ -1918,6 +2118,8 @@ void shouldPushTempNotification()
   boolean canSendTemperatureNotification = currentMillis - previousTemperatureNoticationMillis >= interval;
   // Serial.println("[TIEMPO] Current millis: " + String(currentMillis));
   // Serial.println("[TIEMPO] Ultima notificacion de temperatura en millis: " + String(previousTemperatureNoticationMillis));
+
+  if(!(canSendTemperatureNotification || millis() < 15000)) return;
 
   if (temperature > maxTemperature)
   {
@@ -1979,8 +2181,11 @@ void displayTemperature(float temp)
   display.setTextSize(3);
   if (std::isnan(temp)){
     display.print(temperature, 1);
+    // Serial.println("Display nan");
   }else {
     display.print(temp, 1);
+    // Serial.println("Display temp");
+
   }
   display.print((char)247);
   display.display();
@@ -1995,7 +2200,12 @@ void wifiAPLoop(){
 
   /// Puedo estar conectado al WiFi, pero no tener internet
   /// Por lo tanto requiere un wifi local para poder comunicarse
-  if (WiFi.status() == WL_CONNECTED && !fallaElectrica() && internetConnected()){
+  // Serial.print("[time#0.2.1] time: ");
+  // Serial.print(millis());
+  // Serial.println();
+  /// add internetConnected()
+  if (WiFi.status() == WL_CONNECTED && !fallaElectrica() && 
+  internetConnectionOk){
     /// Disable soft ap
     if (softApEnabled){
       Serial.println("[BATTERY] Apagando WiFi AP. Modo ahorro desactivado.");
@@ -2003,6 +2213,9 @@ void wifiAPLoop(){
       WiFi.softAPdisconnect(true);
       softApEnabled = false;
     }
+    // Serial.print("[time#0.2.1.1] time: ");
+    // Serial.print(millis());
+    // Serial.println();
   }else {
     /// Enable soft ap
     if (!softApEnabled){
@@ -2010,6 +2223,9 @@ void wifiAPLoop(){
       startWiFiAP();
       softApEnabled = true;
     }
+    // Serial.print("[time#0.2.1.2] time: ");
+    // Serial.print(millis());
+    // Serial.println();
 
   }
 }
