@@ -1,4 +1,6 @@
 #include <ArduinoJson.h>
+#include <OneWire.h>
+#include <DallasTemperature.h>
 #include <ESP8266WiFi.h>
 #include <ESP8266Ping.h>
 #include "uMQTTBroker.h"
@@ -26,21 +28,29 @@ Adafruit_SSD1306 display(SCREEN_WIDTH, SCREEN_HEIGHT, &Wire, OLED_RESET);
 //========================================== pins
 //==========================================
 
-
 #define KEY "secretphrase"
 #define DHTTYPE DHT11 // DHT 11
 
-
 #define FACTORYREST D0
-uint8_t DHTPin = D3; /// DHT1
-#define COMPRESOR D4
-#define ELECTRICIDAD D5
+uint8_t DHTPin = D6; /// DHT1
+#define COMPRESOR D7
+#define ELECTRICIDAD D4
 #define BAJARTEMP D6
-#define SUBIRTEMP D7
+#define SUBIRTEMP D0
 #define CONFIGURATION_MODE_OUTPUT D8
 #define LIGHT D8
 
+// Data wire is connected to digital pin 7 on the Arduino
+#define ONE_WIRE_BUS D3
 
+// Setup a oneWire instance to communicate with any OneWire device
+OneWire oneWire(ONE_WIRE_BUS);
+
+// Pass oneWire reference to DallasTemperature library
+DallasTemperature sensors(&oneWire);
+
+/// Dirección del sensor 1
+DeviceAddress address1 = {0x28, 0xFF, 0xCA, 0x4A, 0x5, 0x16, 0x3, 0xBD};
 
 // String API_HOST = "https://zona-refri-api.herokuapp.com";
 String API_HOST = "https://zona-refri.onrender.com";
@@ -59,6 +69,7 @@ bool compressor = false;    // Salida compressor
 bool door = false;          // Sensor puerta abierta/cerrada
 bool standalone = true;     // Quieres la nevera en modo independiente?
 float temperature = 0;      // Sensor temperature
+float externalTemperature = 0;      // Sensor temperature
 float humidity = 70;        // Sensor humidity
 int maxTemperature = 20;    // Parametro temperatura minima permitida.
 int minTemperature = -10;   // Parametro temperatura maxima permitida.
@@ -68,7 +79,7 @@ bool internetConnectionOk = true;
 // Para almacenar el tiempo en milisegundos.
 unsigned long tiempoAnterior = 0;
 // 7 minutos de espera de tiempo prudencial para volver a encender el compresor.
-int tiempoEspera = 420000; // 1000 * 60 * 7
+int tiempoEspera = 1000 * 60 * 7; // 1000 * 60 * 7
 // int tiempoEspera = 120000; // 1000 * 60 * 7
 // Bandera que indica que el compresor fue encendido.
 bool compresorFlag = false;
@@ -174,8 +185,8 @@ void setState()
   // Serial.println("[JSON DEBUG][STATE] Is siIs ovze: " + String(state.size()));
 }
 
-
-bool internetConnected(){
+bool internetConnected()
+{
   bool ret = Ping.ping("www.google.com", 1);
   return ret;
 }
@@ -200,8 +211,7 @@ unsigned long previousRetryWifiConnection = 0;
 
 unsigned long debugMemoryTime;
 
-
-const long intervalInternet = 1000 * 60 * 2;
+const long intervalInternet = 1000 * 60 * 10;
 unsigned long previousInternetRevision = 0;
 
 //========================================== memoria
@@ -348,7 +358,6 @@ public:
     Serial.println(addr.toString() + " connected");
     notifyInformation = true;
 
-  
     publishInformation();
     return true;
   }
@@ -364,11 +373,13 @@ public:
     Serial.println("[LOCAL BROKER][AUTH] Username/Password/ClientId: " + username + "/" + password + "/" + client_id);
     Serial.println("Dueño Id: " + userId);
     // return true;
-    if (configurationMode){
-      if (getClientCount() > 1){
+    if (configurationMode)
+    {
+      if (getClientCount() > 1)
+      {
 
         Serial.println("[LOCAL BROKER][AUTH] Modo configuracion con usuario ya activo, rechazando ingreso");
-       return false;
+        return false;
       }
 
       Serial.println("[LOCAL BROKER][AUTH] Modo configuracion permitiendo ingreso");
@@ -383,7 +394,8 @@ public:
     // jwt.decodeJWT(password);
     Serial.println("[LOCAL BROKER][AUTH] Verificando usuario");
     Serial.println(userId.equals(client_id));
-    if (userId.equals(client_id)){
+    if (userId.equals(client_id))
+    {
       Serial.println("[LOCAL BROKER][AUTH] Ingreso valido");
 
       notifyInformation = true;
@@ -454,11 +466,12 @@ FridgeMQTTBroker myBroker;
 void publishState()
 {
   // setState();
-  DynamicJsonDocument state(state_capacity);       // State, sensors, outputs...
+  DynamicJsonDocument state(state_capacity); // State, sensors, outputs...
   state["id"] = id;
   // state["userId"] = userId;
   state["name"] = name;
   state["temperature"] = temperature;
+  state["externalTemperature"] = externalTemperature;
   state["light"] = light;
   state["compressor"] = compressor;
   state["door"] = door;
@@ -514,11 +527,12 @@ void publishState()
 void publishStateLocalBroker()
 {
   setState();
-  DynamicJsonDocument state(state_capacity);       // State, sensors, outputs...
+  DynamicJsonDocument state(state_capacity); // State, sensors, outputs...
   state["id"] = id;
   // state["userId"] = userId;
   state["name"] = name;
   state["temperature"] = temperature;
+  state["externalTemperature"] = externalTemperature;
   state["light"] = light;
   state["compressor"] = compressor;
   state["door"] = door;
@@ -543,11 +557,12 @@ void publishStateLocalBroker()
 void publishStateLocalCoordinator()
 {
   setState();
-  DynamicJsonDocument state(state_capacity);       // State, sensors, outputs...
+  DynamicJsonDocument state(state_capacity); // State, sensors, outputs...
   state["id"] = id;
   // state["userId"] = userId;
   state["name"] = name;
   state["temperature"] = temperature;
+  state["externalTemperature"] = externalTemperature;
   state["light"] = light;
   state["compressor"] = compressor;
   state["door"] = door;
@@ -590,11 +605,12 @@ void publishStateCloud()
   // Serial.print(millis());
   // Serial.println();
   setState();
-  DynamicJsonDocument state(state_capacity);       // State, sensors, outputs...
+  DynamicJsonDocument state(state_capacity); // State, sensors, outputs...
   state["id"] = id;
   // state["userId"] = userId;
   state["name"] = name;
   state["temperature"] = temperature;
+  state["externalTemperature"] = externalTemperature;
   state["light"] = light;
   state["compressor"] = compressor;
   state["door"] = door;
@@ -653,19 +669,16 @@ void publishInformation()
   information.clear();
 }
 
-
-
 void publishErrorMessage(String title, String message)
 {
-  DynamicJsonDocument errorMessage(state_capacity); 
+  DynamicJsonDocument errorMessage(state_capacity);
   errorMessage["title"] = title;
   errorMessage["message"] = message;
   String errorMessageEncoded = jsonToString(errorMessage);
 
-
   if (standalone)
   {
-   
+
     if (userLocalConnected || myBroker.getClientCount() > 0)
     {
       myBroker.publish("error/" + id, errorMessageEncoded);
@@ -677,7 +690,6 @@ void publishErrorMessage(String title, String message)
       {
         Serial.print("... publicado mensaje de error\n");
       }
-
     }
   }
   else
@@ -688,15 +700,14 @@ void publishErrorMessage(String title, String message)
 
 void publishMessage(String title, String message)
 {
-  DynamicJsonDocument jsonMessage(state_capacity); 
+  DynamicJsonDocument jsonMessage(state_capacity);
   jsonMessage["title"] = title;
   jsonMessage["message"] = message;
   String messageEncoded = jsonToString(jsonMessage);
 
-
   if (standalone)
   {
-   
+
     if (userLocalConnected || myBroker.getClientCount() > 0)
     {
       myBroker.publish("message/" + id, messageEncoded);
@@ -708,7 +719,6 @@ void publishMessage(String title, String message)
       {
         Serial.print("... publicado mensaje\n");
       }
-
     }
   }
   else
@@ -816,6 +826,7 @@ void startInternetClient()
     {
       Serial.print("\n[WIFI INTERNET] NO conectado. ");
       // retryInternetConnection = true;
+      factoryRestore();
     }
   }
 }
@@ -943,14 +954,16 @@ void setupWifi()
   /// para el modo independiente
 
   /// Setup WiFi AP to configure
-  if (configurationMode){
+  if (configurationMode)
+  {
     Serial.println("[LOCAL AP] Soft AP Iniciado. Modo configuracion activado.");
     startWiFiAP();
     return;
   }
 
   /// Electrical issue, emergency mode
-  if (fallaElectrica()){
+  if (fallaElectrica())
+  {
     // Start WiFi AP because the system have an electrical issue
     Serial.println("[LOCAL AP] Soft AP Iniciado. Modo ahorro activado.");
   }
@@ -1012,8 +1025,6 @@ void setup()
   /// Memory
   EEPROM.begin(1024);
 
-  
-
   // while (!EEPROM) {}
   while (!Serial)
   {
@@ -1025,7 +1036,9 @@ void setup()
     Serial.println(F("SSD1306 allocation failed"));
     for (;;)
       ; // Don't proceed, loop forever
-  }else{
+  }
+  else
+  {
     Serial.println("[Display] OK");
   }
 
@@ -1047,6 +1060,7 @@ void setup()
   pinMode(SUBIRTEMP, INPUT);
   pinMode(FACTORYREST, INPUT);
   pinMode(ELECTRICIDAD, INPUT);
+  digitalWrite(COMPRESOR, LOW);
 
   /// Setup WiFi
   // setupWifi();
@@ -1061,6 +1075,7 @@ void setup()
 
   /// Dht Begin
   dht.begin();
+  sensors.begin();
 
   debugMemoryTime = millis();
 }
@@ -1068,9 +1083,11 @@ void setup()
 //================================================ loop
 //================================================
 
-void verifyInternetConnection(){
+void verifyInternetConnection()
+{
   boolean canPublish = millis() - previousInternetRevision >= intervalInternet;
-  if (canPublish){
+  if (canPublish)
+  {
     previousInternetRevision = millis();
     internetConnectionOk = internetConnected();
     Serial.print("[Internet] Connected: ");
@@ -1092,6 +1109,8 @@ void shouldPublish()
   boolean canPublish = millis() - previousNotifyInformation >= notifyInformationInterval;
   if (canPublish)
   {
+    readTemperature();
+    readExternalTemperature();
     // Serial.println("[PUBLISH]");
     previousNotifyInformation = millis();
     publishInformation();
@@ -1100,12 +1119,12 @@ void shouldPublish()
     // Serial.println();
     if (!configurationMode)
     {
-    
+
       if (softApEnabled && myBroker.getClientCount() > 0)
       {
         publishStateLocalBroker();
       }
-      
+
       if (!standalone)
       {
 
@@ -1116,22 +1135,25 @@ void shouldPublish()
         // Serial.print("[time#0.6.3] time: ");
         // Serial.print(millis());
         // Serial.println();
-        if (softApEnabled) return;
+        if (softApEnabled)
+          return;
         publishStateCloud();
       }
 
       // Serial.print("[time#0.6.4] time: ");
       // Serial.print(millis());
       // Serial.println();
-      
     }
   }
 }
 
 unsigned long freeRam;
-void logMemory(){
-  if(millis() - debugMemoryTime <= 1000) return;
-  if(ESP.getFreeHeap() == freeRam) return;
+void logMemory()
+{
+  if (millis() - debugMemoryTime <= 1000)
+    return;
+  if (ESP.getFreeHeap() == freeRam)
+    return;
   debugMemoryTime = millis();
   freeRam = ESP.getFreeHeap();
   Serial.print("[RAM] RAM: ");
@@ -1164,9 +1186,8 @@ void loop()
     // Serial.print(millis());
     // Serial.println();
 
-
     // Se obtienen los datos de la temperatura
-    readTemperature();
+    // readTemperature();
 
     // Serial.print("[time#0.4] time: ");
     // Serial.print(millis());
@@ -1180,7 +1201,7 @@ void loop()
     // Serial.println();
 
     /// Control de botontes
-    controlBotones();
+    // controlBotones();
 
     // Serial.print("[time#0.6] time: ");
     // Serial.print(millis());
@@ -1206,11 +1227,14 @@ void loop()
     // Serial.print("[time#1] time: ");
     // Serial.print(millis());
     // Serial.println();
-    if(fallaElectrica()){
+    if (fallaElectrica())
+    {
       tiempo2LecturaFallaElectrica = millis();
-      if(tiempo2LecturaFallaElectrica > tiempo1LecturaFallaElectrica + intervaloFallaElectrica || tiempo1LecturaFallaElectrica < intervaloFallaElectrica){
+      if (tiempo2LecturaFallaElectrica > tiempo1LecturaFallaElectrica + intervaloFallaElectrica || tiempo1LecturaFallaElectrica < intervaloFallaElectrica)
+      {
         tiempo1LecturaFallaElectrica = millis();
-        if (millis() < intervaloFallaElectrica){
+        if (millis() < intervaloFallaElectrica)
+        {
           tiempo1LecturaFallaElectrica = intervaloFallaElectrica;
         }
         Serial.println("[ELECTRICIDAD] Falla electrica... Enviando notificacion");
@@ -1218,7 +1242,6 @@ void loop()
         String title = "Error ocurrido en " + name;
         publishErrorMessage(title, "Ha ocurrido una falla eléctrica");
       }
-    
     }
 
     // Serial.print("[time#0.9] time: ");
@@ -1244,26 +1267,20 @@ void loop()
     // }
 
     // /// Reintentar conexion al WiFi
-    // if (WiFi.status() != WL_CONNECTED)
-    // {
-    //   boolean canReconnection = millis() - previousRetryWifiConnection >= retryWifiConnectionInterval;
-    //   if (standalone)
-    //   {
-    //     userLocalConnected = true;
-    //   }
+    if (WiFi.status() != WL_CONNECTED)
+    {
+      boolean canReconnection = millis() - previousRetryWifiConnection >= retryWifiConnectionInterval;
+      if (millis() < 1000 * 60 * 2)
+      {
+        return;
+      }
 
-    //   if (canReconnection)
-    //   {
-    //     previousRetryWifiConnection = millis();
-    //     if (standalone)
-    //     {
-    //       startInternetClient();
-    //     }
-    //     else
-    //     {
-    //       startWiFiClient();
-    //     }
-    //   }
+      if (canReconnection)
+      {
+        previousRetryWifiConnection = millis();
+        setupWifi();
+      }
+    }
 
     //   // userLocalConnected = WiFi.status() != WL_CONNECTED;
     // }
@@ -1290,14 +1307,15 @@ void loop()
     //   }
     // }
 
-  
-    if (!cloudClient.connected() && standalone && !fallaElectrica()){
+    if (!cloudClient.connected() && standalone && !fallaElectrica())
+    {
       reconnectCloud();
     }
     // Serial.print("[time#3] time: ");
     // Serial.print(millis());
     // Serial.println();
-    if (cloudClient.connected() && standalone  && !fallaElectrica()){
+    if (cloudClient.connected() && standalone && !fallaElectrica())
+    {
       cloudClient.loop();
     }
 
@@ -1310,8 +1328,6 @@ void loop()
     // {
     //   localClient.loop();
     // }
-
-    
 
     /// verificando si deberia enviar push notification
     shouldPushTempNotification();
@@ -1481,13 +1497,29 @@ void onAction(JsonObject json)
 /// Lectura de temperatura a través del sensor.
 void readTemperature()
 {
-  float temperatureRead = dht.readTemperature();
+  // Serial.print("[time#1] ");
+  // Serial.println(millis());
+
+  sensors.requestTemperaturesByIndex(0);
+  // Serial.print("[time#2] ");
+  // Serial.println(millis());
+  float temperatureRead = sensors.getTempCByIndex(0);
+  // float temperatureRead = sensors.getTempC(address1);
+
+  // Serial.print("[time#3] ");
+  // Serial.println(millis());
+
+  // float temperatureRead = sensors.getTempCByIndex(0);
+  // float temperatureRead = dht.readTemperature();
+
   // Serial.print("[Temperatura] Temperatura: ");
   // Serial.println(temperatureRead);
+
   displayTemperature(temperatureRead);
   if (int(temperatureRead) != temperature)
   {
-    if (!std::isnan(temperatureRead)){
+    if (!std::isnan(temperatureRead) && temperatureRead != -127.0)
+    {
       temperature = int(temperatureRead);
     }
     // temperature = 10;
@@ -1506,24 +1538,37 @@ void readTemperature()
   }
 }
 
+void readExternalTemperature(){
+  float temperatureRead = dht.readTemperature();
+
+  if (temperatureRead != externalTemperature){
+    externalTemperature = int(temperatureRead);
+    // temperature = 10;
+    notifyState = true;
+  }
+
+  // Serial.println("[Temperatura Externa] Temperatura: ");
+  // Serial.print(externalTemperature);
+}
+
 /// Turn on/off the light
 void toggleLight()
 {
   light = !light;
   String title = "Mensaje de " + name;
-  if (light){
+  if (light)
+  {
     publishMessage(
-      title,
-      "Se ha encendido la luz del equipo"
-    );
-  }else {
+        title,
+        "Se ha encendido la luz del equipo");
+  }
+  else
+  {
     publishMessage(
-      title,
-      "Se ha apagado la luz del equipo"
-    );
+        title,
+        "Se ha apagado la luz del equipo");
   }
   publishState();
-
 
   lightLoop();
 }
@@ -1534,13 +1579,11 @@ void lightLoop()
   {
     digitalWrite(LIGHT, HIGH); // envia señal alta al relay
     // Serial.println("Enciende la luz");
-    
   }
   else
   {
     digitalWrite(LIGHT, LOW); // envia señal alta al relay
     // Serial.println("Apaga la luz");
-    
   }
 }
 
@@ -1713,7 +1756,9 @@ void configureDevice(
   if (!_password.equals("") && !_password.equals("null"))
   {
     password = _password;
-  }else {
+  }
+  else
+  {
     return;
   }
   // id = _id;
@@ -1724,7 +1769,6 @@ void configureDevice(
   maxTemperature = _maxTemperature;
   minTemperature = _minTemperature;
   ssid = _ssid;
-
 
   if (!coordinatorSsid.equals("") && !coordinatorSsid.equals("null"))
   {
@@ -1763,7 +1807,6 @@ void configureDevice(
     Serial.println("[CONFIG] Se termino de configurar compeltamente");
     configurationMode = false;
     WiFi.softAPdisconnect(true);
-
   }
   else
   {
@@ -1825,7 +1868,8 @@ void sendNotification(String message)
 /// Publicar temperatura
 void pushTemperature(float temp)
 {
-  if (std::isnan(temp)) return;
+  if (std::isnan(temp))
+    return;
 
   DynamicJsonDocument payload(512);
   payload["id"] = id;
@@ -1921,7 +1965,7 @@ bool crearNevera(String userId)
         return true;
       }
       http.end();
-      
+
       return false;
     }
     else
@@ -1983,7 +2027,8 @@ void factoryRestore()
 // Control del compresor
 void controlCompresor()
 {
-  if (fallaElectrica()){
+  if (fallaElectrica())
+  {
     compressor = false;
     digitalWrite(COMPRESOR, LOW);
     return;
@@ -2063,10 +2108,13 @@ void controlBotones()
   {
     downTempFlag = false;
   }
-
+  // Serial.print("Bajar Temp: ");
+  // Serial.println(digitalRead(BAJARTEMP));
+  // Serial.print("Subir Temp: ");
+  // Serial.println(digitalRead(SUBIRTEMP));
   if (digitalRead(SUBIRTEMP))
   {
-    // Serial.print("Boton subir temp en contacto");
+    // Serial.println("Boton subir temp en contacto");
     // temperaturaDeseada2++;
     // upTempFlag = true;
     // setTemperature(temperaturaDeseada2);
@@ -2075,12 +2123,12 @@ void controlBotones()
       temperaturaDeseada2++;
       upTempFlag = true;
       setTemperature(temperaturaDeseada2);
-      
     }
   }
   else
   {
     upTempFlag = false;
+    // Serial.println("Boton subir temp fuera");
   }
   // float temperatureRead = dht.readTemperature();
   // displayTemperature(temperatureRead);
@@ -2119,7 +2167,8 @@ void shouldPushTempNotification()
   // Serial.println("[TIEMPO] Current millis: " + String(currentMillis));
   // Serial.println("[TIEMPO] Ultima notificacion de temperatura en millis: " + String(previousTemperatureNoticationMillis));
 
-  if(!(canSendTemperatureNotification || millis() < 15000)) return;
+  if (!(canSendTemperatureNotification || millis() < 15000))
+    return;
 
   if (temperature > maxTemperature)
   {
@@ -2166,32 +2215,75 @@ void shouldPushTempNotification()
 /// Display temperature
 void displayTemperature(float temp)
 {
-
   display.clearDisplay();
+  if (configurationMode)
+  { //[MODO CONFIGURACION]
+    display.setTextColor(SSD1306_WHITE);
+    display.clearDisplay();
+    //  display.setCursor(0,0);
+    display.setTextSize(1);
+    display.setTextColor(SSD1306_WHITE);
+    //  display.println("Start");
+    //  display.display();
+    //  delay(2000);
+    display.setCursor(9, 27);
+    display.print("Esperando \n configuracion...");
+    display.display();
+    return;
+  }
+
   // display.display();
 
   display.setTextSize(1);
-  String tempDText = "Temp. deseada: " + String(temperaturaDeseada);
-
   display.setTextColor(SSD1306_WHITE);
-  display.setCursor(0, 0);
-  display.println(tempDText);
-  display.println("---------------------");
+  // display.setCursor(0, 55);
+  // display.println("---------------------");
   display.setCursor(28, 27);
   display.setTextSize(3);
-  if (std::isnan(temp)){
+  if (std::isnan(temp) || temp == -127.0)
+  {
     display.print(temperature, 1);
     // Serial.println("Display nan");
-  }else {
+  }
+  else
+  {
     display.print(temp, 1);
-    // Serial.println("Display temp");
-
+    // Serial.println("Display temp nan");
   }
   display.print((char)247);
+
+  display.setTextSize(1);
+  display.setCursor(0, 55);
+  String tempDText = "Temp. deseada: " + String(temperaturaDeseada) + " C";
+  display.print("T. deseada: ");
+  display.print(temperaturaDeseada);
+  display.print(" C");
+  // if (WiFi.status() == WL_CONNECTED && !fallaElectrica() &&
+  //     internetConnectionOk)
+  // {
+    
+  // }
+  
+  display.setCursor(0, 1);
+
+  if (fallaElectrica())
+  {
+    display.print("Falla electrica");
+  }
+  else if (!internetConnectionOk)
+  {
+    display.print("Sin internet");
+  }else if (WiFi.status() != WL_CONNECTED){
+    display.print("No conectado");
+
+  }
+  
+
   display.display();
 }
 
-void wifiAPLoop(){
+void wifiAPLoop()
+{
   /// Normal state => Connected to WiFi and No Electrical Issue
   // TODO: Add no internet
 
@@ -2204,10 +2296,12 @@ void wifiAPLoop(){
   // Serial.print(millis());
   // Serial.println();
   /// add internetConnected()
-  if (WiFi.status() == WL_CONNECTED && !fallaElectrica() && 
-  internetConnectionOk){
+  if (WiFi.status() == WL_CONNECTED && !fallaElectrica() &&
+      internetConnectionOk)
+  {
     /// Disable soft ap
-    if (softApEnabled){
+    if (softApEnabled)
+    {
       Serial.println("[BATTERY] Apagando WiFi AP. Modo ahorro desactivado.");
 
       WiFi.softAPdisconnect(true);
@@ -2216,9 +2310,12 @@ void wifiAPLoop(){
     // Serial.print("[time#0.2.1.1] time: ");
     // Serial.print(millis());
     // Serial.println();
-  }else {
+  }
+  else
+  {
     /// Enable soft ap
-    if (!softApEnabled){
+    if (!softApEnabled)
+    {
       Serial.println("[BATTERY] Iniciando WiFi AP. Modo ahorro activado.");
       startWiFiAP();
       softApEnabled = true;
@@ -2226,13 +2323,14 @@ void wifiAPLoop(){
     // Serial.print("[time#0.2.1.2] time: ");
     // Serial.print(millis());
     // Serial.println();
-
   }
 }
 
-bool fallaElectrica(){
+bool fallaElectrica()
+{
   bool batteryOn = false;
-  if(digitalRead(ELECTRICIDAD)){
+  if (digitalRead(ELECTRICIDAD))
+  {
     /// Normal
     batteryOn = false;
     /// Disable soft ap
@@ -2242,16 +2340,16 @@ bool fallaElectrica(){
     //   WiFi.softAPdisconnect(true);
     //   softApEnabled = false;
     // }
-  }else{
+  }
+  else
+  {
     /// Emergency mode
-    batteryOn = true; 
+    batteryOn = true;
     // if (!softApEnabled){
     //   Serial.println("[BATTERY] Iniciando WiFi AP. Modo ahorro activado.");
     //   startWiFiAP();
     //   softApEnabled = true;
     // }
-
-
   }
   return batteryOn;
 }
