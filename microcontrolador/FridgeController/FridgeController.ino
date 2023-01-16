@@ -1501,7 +1501,7 @@ void readTemperature()
   // Serial.println(millis());
 
   sensors.requestTemperaturesByIndex(0);
-  // Serial.print("[time#2] ");
+  // Serial.print("[time#2] ");f
   // Serial.println(millis());
   float temperatureRead = sensors.getTempCByIndex(0);
   // float temperatureRead = sensors.getTempC(address1);
@@ -2332,7 +2332,7 @@ bool fallaElectrica()
   if (digitalRead(ELECTRICIDAD))
   {
     /// Normal
-    batteryOn = false;
+    batteryOn = true;
     /// Disable soft ap
     // if (softApEnabled){
     //   Serial.println("[BATTERY] Apagando WiFi AP. Modo ahorro desactivado.");
@@ -2344,7 +2344,7 @@ bool fallaElectrica()
   else
   {
     /// Emergency mode
-    batteryOn = true;
+    batteryOn = false;
     // if (!softApEnabled){
     //   Serial.println("[BATTERY] Iniciando WiFi AP. Modo ahorro activado.");
     //   startWiFiAP();
