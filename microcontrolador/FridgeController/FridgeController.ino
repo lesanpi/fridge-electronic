@@ -33,8 +33,8 @@ Adafruit_SSD1306 display(SCREEN_WIDTH, SCREEN_HEIGHT, &Wire, OLED_RESET);
 
 #define FACTORYREST D0
 uint8_t DHTPin = D6; /// DHT1
-#define COMPRESOR D7
-#define ELECTRICIDAD D4
+#define COMPRESOR D4
+#define ELECTRICIDAD D7
 #define BAJARTEMP D6
 #define SUBIRTEMP D0
 #define CONFIGURATION_MODE_OUTPUT D8
@@ -1056,8 +1056,10 @@ void setup()
   // pinMode(CONFIGURATION_MODE_OUTPUT, OUTPUT);
   pinMode(LIGHT, OUTPUT);
   pinMode(COMPRESOR, OUTPUT);
-  pinMode(BAJARTEMP, INPUT);
-  pinMode(SUBIRTEMP, INPUT);
+  digitalWrite(COMPRESOR, LOW);
+
+  // pinMode(BAJARTEMP, INPUT);
+  // pinMode(SUBIRTEMP, INPUT);
   pinMode(FACTORYREST, INPUT);
   pinMode(ELECTRICIDAD, INPUT);
   digitalWrite(COMPRESOR, LOW);
@@ -2030,6 +2032,9 @@ void controlCompresor()
   if (fallaElectrica())
   {
     compressor = false;
+    compresorFlag = false;
+    tiempoAnterior = millis();
+    // Serial.println("[COMPRESOR] APAGANDO EL COMPRESOR");
     digitalWrite(COMPRESOR, LOW);
     return;
   }
