@@ -32,15 +32,13 @@ Adafruit_SSD1306 display(SCREEN_WIDTH, SCREEN_HEIGHT, &Wire, OLED_RESET);
 #define DHTTYPE DHT11 // DHT 11
 
 #define FACTORYREST D0
-uint8_t DHTPin = D6; /// DHT1
-#define COMPRESOR D4
+uint8_t DHTPin = D4; /// DHT1
+#define COMPRESOR D6
 #define ELECTRICIDAD D7
 #define BAJARTEMP D6
 #define SUBIRTEMP D0
-#define CONFIGURATION_MODE_OUTPUT D8
 #define LIGHT D8
-
-// Data wire is connected to digital pin 7 on the Arduino
+#define ANALOGPILA A0
 #define ONE_WIRE_BUS D3
 
 // Setup a oneWire instance to communicate with any OneWire device
@@ -64,17 +62,18 @@ bool userLocalConnected = false;
 String id = "ZONA-REFRI";
 String userId = "";
 String name = "";
-bool light = false;         // Salida luz
-bool compressor = false;    // Salida compressor
-bool door = false;          // Sensor puerta abierta/cerrada
-bool standalone = true;     // Quieres la nevera en modo independiente?
-float temperature = 0;      // Sensor temperature
-float externalTemperature = 0;      // Sensor temperature
-float humidity = 70;        // Sensor humidity
-int maxTemperature = 20;    // Parametro temperatura minima permitida.
-int minTemperature = -10;   // Parametro temperatura maxima permitida.
-int temperaturaDeseada = 4; // Parametro temperatura recibida por el usuario.
+bool light = false;            // Salida luz
+bool compressor = false;       // Salida compressor
+bool door = false;             // Sensor puerta abierta/cerrada
+bool standalone = true;        // Quieres la nevera en modo independiente?
+float temperature = 0;         // Sensor temperature
+float externalTemperature = 0; // Sensor temperature
+float humidity = 70;           // Sensor humidity
+int maxTemperature = 20;       // Parametro temperatura minima permitida.
+int minTemperature = -10;      // Parametro temperatura maxima permitida.
+int temperaturaDeseada = 4;    // Parametro temperatura recibida por el usuario.
 bool softApEnabled = false;
+int batteryPorcentage = 100;   // Battery level porcentage %
 bool internetConnectionOk = true;
 // Para almacenar el tiempo en milisegundos.
 unsigned long tiempoAnterior = 0;
@@ -202,6 +201,9 @@ unsigned long previousTemperaturePushMillis = 0;
 /// 1000 millisPerSecond * 60 secondPerMinutes * 30 minutes
 const long interval = 1000 * 60 * 20;
 unsigned long previousTemperatureNoticationMillis = 0;
+
+const long intervalBatteryNotification = 1000 * 60 * 10;
+unsigned long previousBatteryNoticationMillis = 0;
 
 const long notifyInformationInterval = 1000;
 unsigned long previousNotifyInformation = 0;
@@ -468,6 +470,7 @@ void publishState()
   // setState();
   DynamicJsonDocument state(state_capacity); // State, sensors, outputs...
   state["id"] = id;
+  state["batteryPorcentage"] = batteryPorcentage;
   // state["userId"] = userId;
   state["name"] = name;
   state["temperature"] = temperature;
@@ -529,6 +532,8 @@ void publishStateLocalBroker()
   setState();
   DynamicJsonDocument state(state_capacity); // State, sensors, outputs...
   state["id"] = id;
+  state["batteryPorcentage"] = batteryPorcentage;
+
   // state["userId"] = userId;
   state["name"] = name;
   state["temperature"] = temperature;
@@ -559,6 +564,8 @@ void publishStateLocalCoordinator()
   setState();
   DynamicJsonDocument state(state_capacity); // State, sensors, outputs...
   state["id"] = id;
+  state["batteryPorcentage"] = batteryPorcentage;
+
   // state["userId"] = userId;
   state["name"] = name;
   state["temperature"] = temperature;
@@ -607,6 +614,8 @@ void publishStateCloud()
   setState();
   DynamicJsonDocument state(state_capacity); // State, sensors, outputs...
   state["id"] = id;
+  state["batteryPorcentage"] = batteryPorcentage;
+
   // state["userId"] = userId;
   state["name"] = name;
   state["temperature"] = temperature;
@@ -1178,6 +1187,8 @@ void loop()
 
     lightLoop();
 
+    levelBattery();
+
     // Serial.print("[time#0.2] time: ");
     // Serial.print(millis());
     // Serial.println();
@@ -1540,10 +1551,12 @@ void readTemperature()
   }
 }
 
-void readExternalTemperature(){
+void readExternalTemperature()
+{
   float temperatureRead = dht.readTemperature();
 
-  if (temperatureRead != externalTemperature){
+  if (temperatureRead != externalTemperature)
+  {
     externalTemperature = int(temperatureRead);
     // temperature = 10;
     notifyState = true;
@@ -2266,9 +2279,9 @@ void displayTemperature(float temp)
   // if (WiFi.status() == WL_CONNECTED && !fallaElectrica() &&
   //     internetConnectionOk)
   // {
-    
+
   // }
-  
+
   display.setCursor(0, 1);
 
   if (fallaElectrica())
@@ -2278,11 +2291,11 @@ void displayTemperature(float temp)
   else if (!internetConnectionOk)
   {
     display.print("Sin internet");
-  }else if (WiFi.status() != WL_CONNECTED){
-    display.print("No conectado");
-
   }
-  
+  else if (WiFi.status() != WL_CONNECTED)
+  {
+    display.print("No conectado");
+  }
 
   display.display();
 }
@@ -2357,4 +2370,47 @@ bool fallaElectrica()
     // }
   }
   return batteryOn;
+}
+
+void levelBattery(){
+
+  // Variables
+  int analogValor = 0;
+  float voltaje = 0;
+  int porcentaje = 0;
+
+  // Leemos valor de la entrada analógica
+  analogValor = analogRead(ANALOGPILA);
+
+  // Obtenemos el voltaje
+  voltaje = 0.00322*analogValor;
+  if(analogValor > 745){
+    porcentaje = 0.35842*(analogValor-745); //1024 - 745 ---> el voltaje minimo aceptado es 3,3V va de 4.2V a 3,3V. En la entrada se lee de 3,3V a 2,4V
+  }else{
+    porcentaje = 0;
+  }
+
+  batteryPorcentage = porcentaje;
+
+  // Serial.print("[BATTERY] Porcentaje: ");
+  // Serial.println(porcentaje);
+
+ if (porcentaje <= 20 && fallaElectrica())
+  {
+    unsigned long currentMillis = millis();
+    boolean canSendNotification = currentMillis - previousBatteryNoticationMillis >= intervalBatteryNotification;
+    if (canSendNotification)
+    {
+      if (WiFi.status() != WL_CONNECTED)
+        return;
+
+      Serial.println("[NOTIFICACION] Notificando de bateria baja");
+      previousBatteryNoticationMillis = millis();
+      String notificationMessage = "Bateria baja " + String(porcentaje) + "%. Temperatura de " + String(temperature) + " grados celsius";
+      sendNotification(notificationMessage);
+      String title = "Bateria baja en " + name;
+      String description = "Temperatura intera de " + String(temperature) + " grados celsius";
+      publishErrorMessage(title, description);
+    }
+  }
 }
