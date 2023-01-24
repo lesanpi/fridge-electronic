@@ -73,7 +73,7 @@ int maxTemperature = 20;       // Parametro temperatura minima permitida.
 int minTemperature = -10;      // Parametro temperatura maxima permitida.
 int temperaturaDeseada = 4;    // Parametro temperatura recibida por el usuario.
 bool softApEnabled = false;
-int batteryPorcentage = 100;   // Battery level porcentage %
+int batteryPorcentage = 100; // Battery level porcentage %
 bool internetConnectionOk = true;
 // Para almacenar el tiempo en milisegundos.
 unsigned long tiempoAnterior = 0;
@@ -835,7 +835,11 @@ void startInternetClient()
     {
       Serial.print("\n[WIFI INTERNET] NO conectado. ");
       // retryInternetConnection = true;
-      factoryRestore();
+      // TODO: Verify when to use
+      if (configurationMode)
+      {
+        factoryRestore();
+      }
     }
   }
 }
@@ -1812,6 +1816,7 @@ void configureDevice(
   // delay(1000);
   WiFi.mode(WIFI_AP_STA);
   delay(1000);
+  // Configure Internet
   startInternetClient();
   // setupWifi();
   Serial.println("[CONFIG] Se configurara el id");
@@ -2372,7 +2377,8 @@ bool fallaElectrica()
   return batteryOn;
 }
 
-void levelBattery(){
+void levelBattery()
+{
 
   // Variables
   int analogValor = 0;
@@ -2383,10 +2389,13 @@ void levelBattery(){
   analogValor = analogRead(ANALOGPILA);
 
   // Obtenemos el voltaje
-  voltaje = 0.00322*analogValor;
-  if(analogValor > 745){
-    porcentaje = 0.35842*(analogValor-745); //1024 - 745 ---> el voltaje minimo aceptado es 3,3V va de 4.2V a 3,3V. En la entrada se lee de 3,3V a 2,4V
-  }else{
+  voltaje = 0.00322 * analogValor;
+  if (analogValor > 745)
+  {
+    porcentaje = 0.35842 * (analogValor - 745); // 1024 - 745 ---> el voltaje minimo aceptado es 3,3V va de 4.2V a 3,3V. En la entrada se lee de 3,3V a 2,4V
+  }
+  else
+  {
     porcentaje = 0;
   }
 
@@ -2395,7 +2404,7 @@ void levelBattery(){
   // Serial.print("[BATTERY] Porcentaje: ");
   // Serial.println(porcentaje);
 
- if (porcentaje <= 20 && fallaElectrica())
+  if (porcentaje <= 20 && fallaElectrica())
   {
     unsigned long currentMillis = millis();
     boolean canSendNotification = currentMillis - previousBatteryNoticationMillis >= intervalBatteryNotification;
