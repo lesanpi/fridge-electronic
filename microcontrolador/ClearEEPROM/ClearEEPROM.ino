@@ -3,7 +3,7 @@
 void setup() {
   EEPROM.begin(512);
   // write a 0 to all 512 bytes of the EEPROM
-  for (int i = 0; i < 512; i++) { EEPROM.write(i, 0); }
+  for (int i = 0; i < EEPROM.length(); i++) { EEPROM.write(i, 0); }
 
   // turn the LED on when we're done
   pinMode(13, OUTPUT);
@@ -12,3 +12,4 @@ void setup() {
 }
 
 void loop() {}
+// /dev/cu.usbserial-0001
