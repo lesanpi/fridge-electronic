@@ -1265,16 +1265,16 @@ void logMemory()
 
 bool fallaTemperatura()
 {
-  if (fallaElectrica())
-  {
-    return (temperature < minTemperature || temperature > maxTemperature);
-  }
+  // if (fallaElectrica())
+  // {
+  //   return (temperature < minTemperature || temperature > maxTemperature);
+  // }
   return (temperature < minTemperature || temperature > maxTemperature) && !muted;
 }
 
 bool fallaBateria()
 {
-  return batteryPorcentage < 20 && fallaElectrica();
+  return batteryPorcentage < 20 && fallaElectrica() && !muted;
 }
 
 void loop()
@@ -1788,6 +1788,7 @@ void muteAlerts()
         "Se han encendido las alertas del equipo");
   }
   publishState();
+  setMemoryData();
 }
 
 void lightLoop()
@@ -2582,6 +2583,7 @@ void wifiAPLoop()
       Serial.println("[BATTERY] Iniciando WiFi AP. Modo ahorro activado.");
       startWiFiAP();
       softApEnabled = true;
+      muted = false;
       // WiFi.enableSTA(false);
       // WiFi.enableAP(true);
       // Serial.println("[BATTERY] Intentando inicio WiFi AP. Modo ahorro activado.");
