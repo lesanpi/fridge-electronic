@@ -61,6 +61,7 @@ String API_HOST = "https://zona-refri.onrender.com";
 //==========================================
 bool userLocalConnected = false;
 String id = "ZONA-REFRI";
+String token = "";
 String userId = "";
 String name = "";
 bool light = false;            // Salida luz
@@ -288,6 +289,7 @@ void getMemoryData()
 
     Serial.println("[MEMORIA] Obteniendo datos en memoria");
     id = String(json["id"]);
+    token = String(json["token"]);
     ssid = String(json["ssid"]);
     password = String(json["password"]);
     // ssidCoordinator = String(json["ssidCoordinator"]);
@@ -330,6 +332,7 @@ void setMemoryData()
 {
   DynamicJsonDocument memoryJson(capacity); // State, sensors, outputs...
   memoryJson["id"] = id;
+  memoryJson["token"] = token;
   memoryJson["compresorMinutesToWait"] = compresorMinutesToWait;
   memoryJson["userId"] = userId;
   memoryJson["name"] = name;
@@ -559,6 +562,7 @@ void publishStateLocalBroker()
   state["battery"] = fallaElectrica();
   String stateEncoded = jsonToString(state);
   Serial.println("[PUBLISH][LOCAL BROKER] Publicando estado: " + stateEncoded);
+  // Serial.println("[TOKEN] Token: " + token);
   myBroker.publish("state/" + id, stateEncoded);
 }
 
@@ -2057,10 +2061,10 @@ void sendNotification(String message)
   payload["id"] = id;
   payload["user"] = userId;
   payload["type"] = 0;
-  String tokenEncoded = jsonToString(payload);
+  // String tokenEncoded = jsonToString(payload);
+  // ArduinoJWT jwt = ArduinoJWT(KEY);
+  // String token = jwt.encodeJWT(tokenEncoded);
 
-  ArduinoJWT jwt = ArduinoJWT(KEY);
-  String token = jwt.encodeJWT(tokenEncoded);
   Serial.println("[NOTIFICATION] Enviando notificacion al usuario");
   if (standalone)
   {
@@ -2101,10 +2105,9 @@ void pushTemperature(float temp)
   payload["id"] = id;
   payload["user"] = userId;
   payload["type"] = 0;
-  String tokenEncoded = jsonToString(payload);
-
-  ArduinoJWT jwt = ArduinoJWT(KEY);
-  String token = jwt.encodeJWT(tokenEncoded);
+  // String tokenEncoded = jsonToString(payload);
+  // ArduinoJWT jwt = ArduinoJWT(KEY);
+  // String token = jwt.encodeJWT(tokenEncoded);
   yield();
   logMemory();
   yield();
@@ -2183,6 +2186,7 @@ bool crearNevera(String userId)
         json = docInput.as<JsonObject>();
         // TODO: Al parecer no se guarda este ID
         id = String(json["id"]);
+        token = String(json["token"]);
         Serial.println("\n[CONFIG] Nuevo id: ");
         Serial.print(id);
         configurationMode = false;
